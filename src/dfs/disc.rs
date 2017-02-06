@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use dfs::*;
-use dfs::file::*;
+
+use support;
 
 #[derive(Debug)]
 pub enum BootOption {
@@ -50,10 +51,8 @@ impl Disc {
 				// We already know the buffer is big enough
 				buf = mem::uninitialized();
 			
-				let src_p = &src[0] as *const u8;
-				let dst_p = &mut buf[0] as *mut u8;
-				copy_nonoverlapping(src_p, dst_p, 8);
-				copy_nonoverlapping(src_p.offset(0x100), dst_p.offset(8), 4);
+				support::inject(&mut buf, 0, &src[0x000..0x008]).unwrap();
+				support::inject(&mut buf[8..], 0, &src[0x100..0x104]).unwrap();
 			}
 
 			let name_len = buf.into_iter().take_while(|&&b| b >= 32u8).count();
