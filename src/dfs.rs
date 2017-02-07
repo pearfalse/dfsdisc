@@ -1,6 +1,3 @@
-pub mod file;
-pub mod disc;
-
 pub const SECTOR_SIZE: usize = 256;
 
 #[derive(Debug)]
@@ -54,6 +51,7 @@ pub use dfs::file_p::*;
 mod disc_p {
 
 	use std::collections::HashMap;
+	use core::cell::RefCell;
 
 	use dfs::*;
 	use support;
@@ -85,8 +83,8 @@ mod disc_p {
 	}
 
 	impl Disc {
-		pub fn from_bytes(src: &[u8]) -> Result<Disc, DFSError> {
-			
+		pub fn from_bytes(src: &[u8]) -> Result<RefCell<Disc>, DFSError> {
+
 			// Must have minimum size for two sectors
 			if src.len() < (SECTOR_SIZE * 2) {
 				return Err(DFSError::InputTooSmall(SECTOR_SIZE * 2))
@@ -104,20 +102,20 @@ mod disc_p {
 					// Second 4 come from buf[0x100..0x104]
 					// We already know the buffer is big enough
 					buf = mem::uninitialized();
-				
-					support::inject(&mut buf, 0, &src[0x000..0x008]).unwrap();
-					support::inject(&mut buf[8..], 0, &src[0x100..0x104]).unwrap();
+
+					support::inject(&mut buf, &src[0x000..0x008]).unwrap();
+					support::inject(&mut buf[8..], &src[0x100..0x104]).unwrap();
 				}
 
 				let name_len = buf.into_iter().take_while(|&&b| b >= 32u8).count();
 				disc_name = String::from_utf8_lossy(&buf[..name_len]).into_owned();
 			}
 
-			Ok(Disc {
+			Ok(RefCell::new(Disc {
 				disc_name: disc_name,
 				files: HashMap::new(),
 				boot_option: BootOption::None
-			})
+			}))
 		}
 	}
 
