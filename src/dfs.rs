@@ -5,6 +5,7 @@ pub enum DFSError {
 	Unknown,
 	InvalidValue,
 	InputTooSmall(usize),
+	InvalidDiscData(usize),
 }
 
 mod file_p {
@@ -90,26 +91,30 @@ mod disc_p {
 				return Err(DFSError::InputTooSmall(SECTOR_SIZE * 2))
 			}
 
-			let disc_name: String;
-			{
+			let disc_name: String = {
 				let mut buf: [u8; 12];
 				unsafe {
 					use core::mem;
-					use std::ptr::copy_nonoverlapping;
 
 					// 12 bytes of u8
 					// First 8 come from buf[0x000..0x008]
 					// Second 4 come from buf[0x100..0x104]
-					// We already know the buffer is big enough
+					// We already know the source is big enough
 					buf = mem::uninitialized();
 
 					support::inject(&mut buf, &src[0x000..0x008]).unwrap();
 					support::inject(&mut buf[8..], &src[0x100..0x104]).unwrap();
 				}
 
-				let name_len = buf.into_iter().take_while(|&&b| b >= 32u8).count();
-				disc_name = String::from_utf8_lossy(&buf[..name_len]).into_owned();
-			}
+				// Upper bit must not be set
+				if let Some(bit7_set) = buf.iter().position(|&n| (n & 0x80) != 0) {
+					return Err(DFSError::InvalidDiscData(bit7_set));
+				}
+
+				let name_len = buf.iter().take_while(|&&b| b >= 32u8).count();
+
+				String::from_utf8_lossy(&buf[..name_len]).into_owned()
+			};
 
 			Ok(RefCell::new(Disc {
 				disc_name: disc_name,
