@@ -8,9 +8,6 @@ pub mod dfs;
 #[cfg(test)]
 mod tests {
 
-	use std::fmt;
-	use std::ptr;
-
 	use dfs;
 	use support;
 
@@ -53,8 +50,8 @@ mod tests {
 
 	fn disc_buf_with_name(name: &[u8]) -> [u8 ; dfs::SECTOR_SIZE * 2] {
 		let mut buf = [0u8 ; dfs::SECTOR_SIZE * 2];
-		support::inject(&mut buf, &name[..8]);
-		support::inject(&mut buf[0x100..], &name[8..]);
+		support::inject(&mut buf, &name[..8]).unwrap();
+		support::inject(&mut buf[0x100..], &name[8..]).unwrap();
 
 		buf
 	}

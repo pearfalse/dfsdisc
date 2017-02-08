@@ -113,7 +113,8 @@ mod disc_p {
 
 				let name_len = buf.iter().take_while(|&&b| b >= 32u8).count();
 
-				String::from_utf8_lossy(&buf[..name_len]).into_owned()
+				// Guaranteed ASCII at this point
+				unsafe { String::from_utf8_unchecked(buf[..name_len].to_vec()) }
 			};
 
 			Ok(RefCell::new(Disc {
