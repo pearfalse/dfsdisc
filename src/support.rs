@@ -22,6 +22,39 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 	Ok(())
 }
 
+#[derive(Clone, Copy, Eq, Debug)]
+pub struct BCD {
+	value: u8
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BCDError {
+	IntValueTooLarge,
+}
+
+impl BCD {
+	pub fn from_u8(src: u8) -> Result<BCD, BCDError> {
+		match src {
+			x if x <= 99 => {
+				Ok(BCD {
+					value: ((src / 10) << 4) + (src % 10)
+				})
+			},
+			_ => Err(BCDError::IntValueTooLarge)
+		}
+	}
+
+	pub fn into_u8(self) -> u8 {
+		(self.value >> 4) + (self.value & 15)
+	}
+}
+
+impl PartialEq for BCD {
+	fn eq(&self, other: &Self) -> bool {
+		self.value == other.value
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -45,5 +78,34 @@ mod tests {
 		assert!(result.is_err());
 		let result = result.unwrap_err();
 		assert_eq!(3, result);
+	}
+
+	#[test]
+	fn bcd_from_u8_success() {
+		let inputs = [5u8, 9u8, 10u8, 25u8, 99u8];
+		let outputs = [
+			BCD {value: 0x05u8},
+			BCD {value: 0x09u8},
+			BCD {value: 0x10u8},
+			BCD {value: 0x25u8},
+			BCD {value: 0x99u8},
+		];
+		for (input, output) in inputs.iter().zip(outputs.iter()) {
+			let result = BCD::from_u8(*input);
+			assert!(result.is_ok());
+			let result = result.unwrap();
+			assert_eq!(result, *output);
+		}
+	}
+
+	#[test]
+	fn bcd_from_u8_failure() {
+		let inputs = [100u8, 255u8];
+
+		for input in inputs.iter() {
+			let result = BCD::from_u8(*input);
+			assert!(result.is_err());
+			assert_eq!(result.unwrap_err(), BCDError::IntValueTooLarge);
+		}
 	}
 }

@@ -1,6 +1,6 @@
 pub const SECTOR_SIZE: usize = 256;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DFSError {
 	Unknown,
 	InvalidValue,
@@ -57,7 +57,7 @@ mod disc_p {
 	use dfs::*;
 	use support;
 
-	#[derive(Debug)]
+	#[derive(Debug, PartialEq)]
 	pub enum BootOption {
 		None,
 		Load,
@@ -76,11 +76,24 @@ mod disc_p {
 		}
 	}
 
+	impl BootOption {
+		fn try_from(src : u8) -> Result<BootOption, DFSError> {
+			match src {
+				0u8 => Ok(BootOption::None),
+				1u8 => Ok(BootOption::Load),
+				2u8 => Ok(BootOption::Run ),
+				3u8 => Ok(BootOption::Exec),
+				_   => Err(DFSError::InvalidValue)
+			}
+		}
+	}
+
 	#[derive(Debug)]
 	pub struct Disc {
 		pub disc_name: String,
 		pub files: HashMap<u8, File>,
-		pub boot_option: BootOption
+		pub boot_option: BootOption,
+		pub disc_cycle: support::BCD,
 	}
 
 	impl Disc {
@@ -117,11 +130,41 @@ mod disc_p {
 				unsafe { String::from_utf8_unchecked(buf[..name_len].to_vec()) }
 			};
 
-			Ok(RefCell::new(Disc {
+			let num_catalogue_entries = {
+				const OFFSET : usize = 0x105;
+				let raw = src[OFFSET];
+				if (raw & 0x07) != 0 { return Err(DFSError::InvalidDiscData(OFFSET)); }
+
+				raw >> 3
+			};
+
+			let sector_count = {
+				const OFFSET : usize = 0x107;
+				let upper = ((src[OFFSET - 1] & 3) as u16) << 8;
+				let result = (src[OFFSET] as u16) | upper;
+				if result < 2 {
+					return Err(DFSError::InvalidDiscData(OFFSET));
+				}
+				result
+			};
+
+			let boot_option = (src[0x106] >> 4) & 3;
+			let boot_option = try!(BootOption::try_from(boot_option));
+
+			let disc_cycle = {
+				const OFFSET : usize = 0x104;
+				try!(support::BCD::from_u8(src[OFFSET])
+					.map_err(|e| DFSError::InvalidDiscData(OFFSET)))
+			};
+
+			let mut disc = Disc {
 				disc_name: disc_name,
 				files: HashMap::new(),
-				boot_option: BootOption::None
-			}))
+				boot_option: boot_option,
+				disc_cycle: disc_cycle,
+			};
+
+			Ok(RefCell::new(disc))
 		}
 	}
 
