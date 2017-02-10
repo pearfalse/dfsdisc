@@ -22,6 +22,7 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 	Ok(())
 }
 
+
 #[derive(Clone, Copy, Eq, Debug)]
 pub struct BCD {
 	value: u8
@@ -54,6 +55,61 @@ impl PartialEq for BCD {
 		self.value == other.value
 	}
 }
+
+
+#[derive(PartialEq, Eq, Debug, Clone, Hash)]
+pub struct AsciiChar {
+	value: u8,
+}
+
+impl AsciiChar {
+	pub fn from_u8(src: u8) -> Result<AsciiChar, ()> {
+		match src {
+			x if x < 0x80 => Ok(AsciiChar {value: x}),
+			_ => Err(())
+		}
+	}
+}
+
+impl From<AsciiChar> for u8 {
+	fn from(src: AsciiChar) -> Self {
+		src.value
+	}
+}
+
+impl From<AsciiChar> for char {
+	fn from(src: AsciiChar) -> Self {
+		src.value as char
+	}
+}
+
+
+#[derive(PartialEq, Eq, Debug, Clone, Hash)]
+pub struct AsciiPrintingChar {
+	value: u8,
+}
+
+impl AsciiPrintingChar {
+	pub fn from_u8(src: u8) -> Result<AsciiPrintingChar, ()> {
+		match src {
+			x if x >= 0x20 && x < 0x80 => Ok(AsciiPrintingChar {value: x}),
+			_ => Err(())
+		}
+	}
+}
+
+impl From<AsciiPrintingChar> for u8 {
+	fn from(src: AsciiPrintingChar) -> Self {
+		src.value
+	}
+}
+
+impl From<AsciiPrintingChar> for char {
+	fn from(src: AsciiPrintingChar) -> Self {
+		src.value as char
+	}
+}
+
 
 #[cfg(test)]
 mod tests {

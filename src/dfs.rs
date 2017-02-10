@@ -9,12 +9,14 @@ pub enum DFSError {
 }
 
 mod file_p {
+	use std::hash::{Hash, Hasher};
 
 	use dfs::*;
+	use support::{AsciiChar, AsciiPrintingChar};
 
-	#[derive(Debug)]
+	#[derive(Debug, Eq)]
 	pub struct File {
-		dir: u8,
+		dir: AsciiPrintingChar,
 		name: String,
 		load_addr: u32,
 		exec_addr: u32,
@@ -32,17 +34,38 @@ mod file_p {
 		}
 
 		pub fn directory(&self) -> char {
-			self.dir as char
+			self.dir.clone().into()
 		}
 
 		pub fn set_directory(&mut self, new_dir: u8) -> Result<(), DFSError> {
-			if new_dir >= 0x20 && new_dir < 0x7f {
-				self.dir = new_dir;
-				Ok(())
-			}
-			else {
-				Err(DFSError::InvalidValue)
-			}
+			self.dir = try!(AsciiPrintingChar::from_u8(new_dir).
+				map_err({|_| DFSError::InvalidValue }));
+			Ok(())
+		}
+	}
+
+	impl Hash for File {
+		fn hash<H: Hasher>(&self, state: &mut H) {
+			self.dir.hash(state);
+			self.name.hash(state);
+			self.load_addr.hash(state);
+			self.exec_addr.hash(state);
+		}
+	}
+
+	impl PartialEq for File {
+		fn eq(&self, other: &Self) -> bool {
+			self.load_addr == other.load_addr &&
+			self.exec_addr == other.exec_addr &&
+			self.dir == other.dir &&
+			self.name == other.name
+		}
+
+		fn ne(&self, other: &Self) -> bool {
+			self.load_addr != other.load_addr ||
+			self.exec_addr != other.exec_addr ||
+			self.dir != other.dir ||
+			self.name != other.name
 		}
 	}
 
@@ -51,7 +74,7 @@ pub use dfs::file_p::*;
 
 mod disc_p {
 
-	use std::collections::HashMap;
+	use std::collections::HashSet;
 	use core::cell::RefCell;
 
 	use dfs::*;
@@ -91,9 +114,11 @@ mod disc_p {
 	#[derive(Debug)]
 	pub struct Disc {
 		pub disc_name: String,
-		pub files: HashMap<u8, File>,
 		pub boot_option: BootOption,
 		pub disc_cycle: support::BCD,
+
+		files: HashSet<File>,
+
 	}
 
 	impl Disc {
@@ -157,9 +182,11 @@ mod disc_p {
 					.map_err(|e| DFSError::InvalidDiscData(OFFSET)))
 			};
 
+			let mut files = HashSet::new();
+
 			let mut disc = Disc {
 				disc_name: disc_name,
-				files: HashMap::new(),
+				files: files,
 				boot_option: boot_option,
 				disc_cycle: disc_cycle,
 			};
