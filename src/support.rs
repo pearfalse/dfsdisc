@@ -31,6 +31,7 @@ pub struct BCD {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BCDError {
 	IntValueTooLarge,
+	InvalidHexValue,
 }
 
 impl BCD {
@@ -47,6 +48,15 @@ impl BCD {
 
 	pub fn into_u8(self) -> u8 {
 		(self.value >> 4) + (self.value & 15)
+	}
+
+	pub fn from_hex(src: u8) -> Result<BCD, BCDError> {
+		if ((src & 0xf0) >= 0xa0) || ((src & 0x0f) >= 0x0a) {
+			Err(BCDError::InvalidHexValue)
+		}
+		else {
+			Ok(BCD {value: src})
+		}
 	}
 }
 
@@ -161,7 +171,34 @@ mod tests {
 		for input in inputs.iter() {
 			let result = BCD::from_u8(*input);
 			assert!(result.is_err());
-			assert_eq!(result.unwrap_err(), BCDError::IntValueTooLarge);
+			assert_eq!(BCDError::IntValueTooLarge, result.unwrap_err());
 		}
+	}
+
+	#[test]
+	fn bcd_from_hex_success() {
+		let op = |input, output| {
+			let result = BCD::from_hex(input);
+			assert!(result.is_ok());
+			let result = result.unwrap();
+			assert_eq!(result.value, output);
+		};
+
+		op(0x58u8, 0x58);
+		op(0x09u8, 0x09);
+		op(0x70u8, 0x70);
+	}
+
+	#[test]
+	fn bcd_from_hex_failure() {
+		let op = |input| {
+			let result = BCD::from_hex(input);
+			assert!(result.is_err());
+			assert_eq!(BCDError::InvalidHexValue, result.unwrap_err());
+		};
+
+		op(0x0a);
+		op(0xa0);
+		op(255);
 	}
 }
