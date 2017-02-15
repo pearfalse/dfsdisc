@@ -6,6 +6,7 @@ pub enum DFSError {
 	InvalidValue,
 	InputTooSmall(usize),
 	InvalidDiscData(usize),
+	DuplicateFileName(String),
 }
 
 mod file_p {
@@ -16,11 +17,12 @@ mod file_p {
 
 	#[derive(Debug, Eq)]
 	pub struct File {
-		dir: AsciiPrintingChar,
-		name: String,
-		load_addr: u32,
-		exec_addr: u32,
-		file_contents: Vec<u8>,
+		pub dir: AsciiPrintingChar,
+		pub name: String,
+		pub load_addr: u32,
+		pub exec_addr: u32,
+		pub locked: bool,
+		pub file_contents: Vec<u8>,
 	}
 
 
@@ -34,7 +36,7 @@ mod file_p {
 		}
 
 		pub fn directory(&self) -> char {
-			self.dir.clone().into()
+			*self.dir
 		}
 
 		pub fn set_directory(&mut self, new_dir: u8) -> Result<(), DFSError> {
@@ -75,10 +77,12 @@ pub use dfs::file_p::*;
 mod disc_p {
 
 	use std::collections::HashSet;
-	use core::cell::RefCell;
+	use core::cell::{Cell,RefCell};
+	use std::rc::{Rc,Weak};
+	use core::convert::From;
 
 	use dfs::*;
-	use support;
+	use support::*;
 
 	#[derive(Debug, PartialEq)]
 	pub enum BootOption {
@@ -115,9 +119,9 @@ mod disc_p {
 	pub struct Disc {
 		pub disc_name: String,
 		pub boot_option: BootOption,
-		pub disc_cycle: support::BCD,
+		pub disc_cycle: BCD,
 
-		files: HashSet<File>,
+		files: HashSet<Rc<File>>,
 
 	}
 
@@ -140,12 +144,12 @@ mod disc_p {
 					// We already know the source is big enough
 					buf = mem::uninitialized();
 
-					support::inject(&mut buf, &src[0x000..0x008]).unwrap();
-					support::inject(&mut buf[8..], &src[0x100..0x104]).unwrap();
+					inject(&mut buf, &src[0x000..0x008]).unwrap();
+					inject(&mut buf[8..], &src[0x100..0x104]).unwrap();
 				}
 
 				// Upper bit must not be set
-				if let Some(bit7_set) = buf.iter().position(|&n| (n & 0x80) != 0) {
+				if let Some(bit7_set) = buf.iter().position(|&n| n >= 0x80) {
 					return Err(DFSError::InvalidDiscData(bit7_set));
 				}
 
@@ -153,14 +157,6 @@ mod disc_p {
 
 				// Guaranteed ASCII at this point
 				unsafe { String::from_utf8_unchecked(buf[..name_len].to_vec()) }
-			};
-
-			let num_catalogue_entries = {
-				const OFFSET : usize = 0x105;
-				let raw = src[OFFSET];
-				if (raw & 0x07) != 0 { return Err(DFSError::InvalidDiscData(OFFSET)); }
-
-				raw >> 3
 			};
 
 			let sector_count = {
@@ -178,11 +174,11 @@ mod disc_p {
 
 			let disc_cycle = {
 				const OFFSET : usize = 0x104;
-				try!(support::BCD::from_u8(src[OFFSET])
+				try!(BCD::from_u8(src[OFFSET])
 					.map_err(|e| DFSError::InvalidDiscData(OFFSET)))
 			};
 
-			let mut files = HashSet::new();
+			let mut files = try!(populate_files(src));
 
 			let mut disc = Disc {
 				disc_name: disc_name,
@@ -193,6 +189,90 @@ mod disc_p {
 
 			Ok(RefCell::new(disc))
 		}
+	}
+
+	fn populate_files(src: &[u8])
+	-> Result<HashSet<Rc<File>>, DFSError> {
+		let num_catalogue_entries = {
+			const OFFSET : usize = 0x105;
+			let raw = src[OFFSET];
+			if (raw & 0x07) != 0 { return Err(DFSError::InvalidDiscData(OFFSET)); }
+
+			raw >> 3
+		};
+
+		let mut files = HashSet::new();
+		files.reserve(num_catalogue_entries as usize);
+
+		for i in 0..num_catalogue_entries {
+			// First half: filename, directory name, locked bit
+			let offset1 = ((i*1) as usize) + 0x008;
+			let offset2 = ((i*8) as usize) + 0x108;
+			let name_buf = &src[offset1 .. (offset1 + 7)];
+
+			// Set dir, locked
+			let dir = src[offset1 + 7];
+			let locked = dir > 0x7f;
+			let dir = AsciiPrintingChar::from_u8(dir & 0x7f).unwrap();
+
+			// Guard against stray high bits
+			if let Some(pos) = name_buf.iter().position(|&b| b < 0x20 || b >= 0x80) {
+				return Err(DFSError::InvalidDiscData(pos));
+			}
+
+			// Set file name as owned string
+			let mut name_vec = Vec::with_capacity(name_buf.len());
+			for ch in name_buf {
+				name_vec.push(ch & 0x7f);
+			}
+			// All bytes in `name` guaranteed to be 0x020–0x7f
+			let name = unsafe { String::from_utf8_unchecked(name_vec) };
+
+			let busy_byte = src[offset2 + 6] as u32;
+
+			// Load/Exec
+			let load_addr = (u16_from_le(&src[offset2 .. offset2 + 2]) as u32)
+				| ((busy_byte << 14) & 0x30000);
+			let exec_addr = (u16_from_le(&src[offset2 + 2 .. offset2 + 4]) as u32)
+				| ((busy_byte << 10) & 0x30000);
+
+			// File length and start sector
+			let file_len = (u16_from_le(&src[offset2 + 4 .. offset2 + 6]) as u32)
+				| ((busy_byte << 12) & 0x30000);
+			let start_sector = (src[offset2 + 7] as u32)
+				| ((busy_byte << 8) & 0x300);
+
+			// Validate data offsets
+			let data_start = start_sector * 0x100;
+			let data_end = data_start + file_len;
+			if data_start < 0x200 {
+				return Err(DFSError::InvalidDiscData(offset2 + 7));
+			}
+			if data_end > (src.len() as u32) {
+				return Err(DFSError::InvalidDiscData(offset2 + 6));
+			}
+
+			let file_contents = &src[(data_start as usize)..(data_end as usize)];
+
+			let mut file = Rc::new(File {
+				dir: dir.clone(),
+				name: name,
+				load_addr: load_addr,
+				exec_addr: exec_addr,
+				locked: locked,
+				file_contents: From::from(file_contents)
+			});
+
+			let file2 = file.clone();
+
+			if !files.insert(file) {
+				return Err(DFSError::DuplicateFileName(
+					format!("{}.{}", *file2.dir, file2.name)
+					));
+			}
+		}
+
+		Ok(files)
 	}
 
 }
