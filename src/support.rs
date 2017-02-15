@@ -1,5 +1,7 @@
 // Support stuff
 
+use core::ops::Deref;
+
 pub fn inject<T>(dst: &mut [T], src: &[T])
 -> Result<(), usize> where T : Copy + Sized {
 	let src_len = src.len();
@@ -69,13 +71,13 @@ impl PartialEq for BCD {
 
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub struct AsciiChar {
-	value: u8,
+	value: char,
 }
 
 impl AsciiChar {
 	pub fn from_u8(src: u8) -> Result<AsciiChar, ()> {
 		match src {
-			x if x < 0x80 => Ok(AsciiChar {value: x}),
+			x if x < 0x80 => Ok(AsciiChar {value: x as char}),
 			_ => Err(())
 		}
 	}
@@ -83,26 +85,27 @@ impl AsciiChar {
 
 impl From<AsciiChar> for u8 {
 	fn from(src: AsciiChar) -> Self {
-		src.value
+		src.value as u8
 	}
 }
 
-impl From<AsciiChar> for char {
-	fn from(src: AsciiChar) -> Self {
-		src.value as char
+impl Deref for AsciiChar {
+	type Target = char;
+	fn deref(&self) -> &char {
+		&self.value
 	}
 }
 
 
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub struct AsciiPrintingChar {
-	value: u8,
+	value: char,
 }
 
 impl AsciiPrintingChar {
 	pub fn from_u8(src: u8) -> Result<AsciiPrintingChar, ()> {
 		match src {
-			x if x >= 0x20 && x < 0x80 => Ok(AsciiPrintingChar {value: x}),
+			x if x >= 0x20 && x < 0x80 => Ok(AsciiPrintingChar {value: x as char}),
 			_ => Err(())
 		}
 	}
@@ -110,13 +113,14 @@ impl AsciiPrintingChar {
 
 impl From<AsciiPrintingChar> for u8 {
 	fn from(src: AsciiPrintingChar) -> Self {
-		src.value
+		src.value as u8
 	}
 }
 
-impl From<AsciiPrintingChar> for char {
-	fn from(src: AsciiPrintingChar) -> Self {
-		src.value as char
+impl Deref for AsciiPrintingChar {
+	type Target = char;
+	fn deref(&self) -> &char {
+		&self.value
 	}
 }
 
