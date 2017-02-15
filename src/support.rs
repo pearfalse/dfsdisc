@@ -25,6 +25,16 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 }
 
 
+pub fn u16_from_le(src: &[u8]) -> u16 {
+	if src.len() != 2 {
+		panic!("u16_from_le called with invalid slice length; should be 2, is {}", src.len());
+	}
+	unsafe {
+		((*src.get_unchecked(1) as u16) << 8) | (*src.get_unchecked(0) as u16)
+	}
+}
+
+
 #[derive(Clone, Copy, Eq, Debug)]
 pub struct BCD {
 	value: u8
@@ -204,5 +214,38 @@ mod tests {
 		op(0x0a);
 		op(0xa0);
 		op(255);
+	}
+
+	#[test]
+	fn u16_from_le_success() {
+		let op = |input: [u8; 2], output: u16| {
+			let result = u16_from_le(&input);
+
+			assert_eq!(output, result);
+		};
+
+		op([0, 0], 0);
+		op([255, 255], 65535);
+		op([0x55, 0xaa], 0xaa55);
+	}
+
+	#[test]
+	fn u16_from_le_failure() {
+		use std::panic;
+
+		let op = |input: &[u8]| {
+			let caught_panic = panic::catch_unwind(|| { u16_from_le(input) });
+			assert!(caught_panic.is_err());
+		};
+
+		let data = [77u8];
+		op(&data);
+
+		let data = [5, 5, 5];
+		op(&data);
+
+		let data = [];
+		op(&data);
+
 	}
 }
