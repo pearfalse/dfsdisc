@@ -80,6 +80,8 @@ mod disc_p {
 	use core::cell::{Cell,RefCell};
 	use std::rc::{Rc,Weak};
 	use core::convert::From;
+	use std::iter;
+	use std::collections::hash_set;
 
 	use dfs::*;
 	use support::*;
@@ -126,6 +128,7 @@ mod disc_p {
 	}
 
 	impl Disc {
+
 		pub fn from_bytes(src: &[u8]) -> Result<RefCell<Disc>, DFSError> {
 
 			// Must have minimum size for two sectors
@@ -150,6 +153,7 @@ mod disc_p {
 
 				// Upper bit must not be set
 				if let Some(bit7_set) = buf.iter().position(|&n| n >= 0x80) {
+					let err_pos = if bit7_set >= 8 { bit7_set + 0xf8 } else { bit7_set };
 					return Err(DFSError::InvalidDiscData(bit7_set));
 				}
 
@@ -217,7 +221,7 @@ mod disc_p {
 
 			// Guard against stray high bits
 			if let Some(pos) = name_buf.iter().position(|&b| b < 0x20 || b >= 0x80) {
-				return Err(DFSError::InvalidDiscData(pos));
+				return Err(DFSError::InvalidDiscData(offset1 + pos));
 			}
 
 			// Set file name as owned string
@@ -277,3 +281,43 @@ mod disc_p {
 
 }
 pub use dfs::disc_p::*;
+
+#[cfg(test)]
+mod test_disc {
+
+	use dfs;
+	use support;
+
+
+	#[test]
+	fn from_bytes_files_success() {
+		let mut src = [0u8; dfs::SECTOR_SIZE * 6];
+		support::inject(&mut src[0..8], b"Discname").unwrap();
+		// Three files:
+		// $.Small (12 bytes of '1') load 0x1234 exec 0x5678
+		// A.Single (256 bytes of '2') load 0x8765 exec 0x4321
+		// B.Double (257 bytes of '3') load 0x0111 exec 0x0eee
+		support::inject(&mut src[8..32], b"\
+			Small \x20$\
+			Single\x20A\
+			Double\x20B\
+			").unwrap();
+		support::inject(&mut src[0x100..0x108], b"\x20\x20\x20\x20\x11\x18\x00\x06").unwrap();
+		support::inject(&mut src[0x108..0x110], b"\x34\x12\x78\x56\
+			\x0c\x00\x00\x02").unwrap();
+		support::inject(&mut src[0x110..0x118], b"\x65\x87\x21\x43\
+			\x00\x01\x00\x03").unwrap();
+		support::inject(&mut src[0x118..0x120], b"\x11\x01\xee\x0e\
+			\x01\x01\x00\x04").unwrap();
+
+		support::inject(&mut src[0x200..0x20c], &[0x31u8; 12]).unwrap();
+		support::inject(&mut src[0x300..0x400], &[0x32u8; 256]).unwrap();
+		support::inject(&mut src[0x400..0x501], &[0x33u8; 257]).unwrap();
+
+		let target = dfs::Disc::from_bytes(&src);
+		assert!(target.is_ok(), format!("{:?}", target.unwrap_err()));
+
+		// Start picking files apart
+		// let file_small
+	}
+}
