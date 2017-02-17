@@ -123,7 +123,7 @@ mod disc_p {
 		pub boot_option: BootOption,
 		pub disc_cycle: BCD,
 
-		files: HashSet<Rc<File>>,
+		files: HashSet<File>,
 
 	}
 
@@ -196,7 +196,7 @@ mod disc_p {
 	}
 
 	fn populate_files(src: &[u8])
-	-> Result<HashSet<Rc<File>>, DFSError> {
+	-> Result<HashSet<File>, DFSError> {
 		let num_catalogue_entries = {
 			const OFFSET : usize = 0x105;
 			let raw = src[OFFSET];
@@ -258,22 +258,22 @@ mod disc_p {
 
 			let file_contents = &src[(data_start as usize)..(data_end as usize)];
 
-			let mut file = Rc::new(File {
+			let mut file = File {
 				dir: dir.clone(),
 				name: name,
 				load_addr: load_addr,
 				exec_addr: exec_addr,
 				locked: locked,
 				file_contents: From::from(file_contents)
-			});
+			};
 
-			let file2 = file.clone();
-
-			if !files.insert(file) {
+			if files.contains(&file) {
 				return Err(DFSError::DuplicateFileName(
-					format!("{}.{}", *file2.dir, file2.name)
+					format!("{}.{}", *dir, &file.name)
 					));
 			}
+
+			files.insert(file);
 		}
 
 		Ok(files)
