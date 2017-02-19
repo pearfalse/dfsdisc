@@ -85,10 +85,8 @@ pub use dfs::file_p::*;
 
 mod disc_p {
 
-	use std::collections::HashSet;
-	use core::cell::{RefCell};
 	use core::convert::From;
-	use std::collections::hash_set;
+	use std::collections::{HashSet, hash_set};
 
 	use dfs::*;
 	use support::*;
@@ -180,7 +178,7 @@ mod disc_p {
 		///
 		/// let disc = match dfs::Disc::from_bytes(disc_bytes.as_slice()) {
 		/// 	Ok(x) => {
-		/// 		x.into_inner()
+		/// 		x
 		/// 	},
 		/// 	Err(e) => {
 		/// 		println!("Error parsing disc: {:?}", e);
@@ -193,7 +191,7 @@ mod disc_p {
 		/// 	println!("--> {}", file);
 		/// }
 		/// ```
-		pub fn from_bytes(src: &[u8]) -> Result<RefCell<Disc>, DFSError> {
+		pub fn from_bytes(src: &[u8]) -> Result<Disc, DFSError> {
 
 			// Must have minimum size for two sectors
 			if src.len() < (SECTOR_SIZE * 2) {
@@ -259,7 +257,7 @@ mod disc_p {
 				cycle: disc_cycle,
 			};
 
-			Ok(RefCell::new(disc))
+			Ok(disc)
 		}
 	}
 
@@ -392,7 +390,7 @@ mod test_disc {
 
 		let target = dfs::Disc::from_bytes(&src);
 		assert!(target.is_ok(), format!("{:?}", target.unwrap_err()));
-		let target = target.unwrap().into_inner();
+		let target = target.unwrap();
 
 		// Check cycle count
 		assert_eq!(support::BCD::from_hex(0x11).unwrap(), target.cycle);
@@ -431,7 +429,7 @@ mod test_disc {
 		let target = dfs::Disc::from_bytes(&buf);
 		assert!(target.is_ok(), format!("returned error {:?}", target.unwrap_err()));
 
-		let target = target.unwrap().into_inner();
+		let target = target.unwrap();
 		assert_eq!(test_name, target.name.as_bytes());
 	}
 
@@ -482,7 +480,7 @@ mod test_disc {
 
 			let target = dfs::Disc::from_bytes(&buf);
 			assert!(target.is_ok());
-			let target = target.unwrap().into_inner();
+			let target = target.unwrap();
 			assert_eq!(*boot_type, target.boot_option);
 		}
 	}
