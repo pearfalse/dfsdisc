@@ -16,7 +16,7 @@ mod file_p {
 	use dfs::*;
 	use support::{AsciiPrintingChar};
 
-	#[derive(Debug, Eq)]
+	#[derive(Eq)]
 	pub struct File {
 		pub dir: AsciiPrintingChar,
 		pub name: String,
@@ -74,9 +74,19 @@ mod file_p {
 
 	impl fmt::Display for File {
 		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-			write!(f, "{}.{} (load {:x}, exec {:x}, size {:x})",
+			write!(f, "{}.{} (load 0x{:x}, exec 0x{:x}, size 0x{:x}",
 				*self.dir, self.name,
 				self.load_addr, self.exec_addr, self.file_contents.len()
+			)
+		}
+	}
+
+	impl fmt::Debug for File {
+		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+			write!(f, "<DFSFile dir={:?} name={:?} \
+				load=0x{:x} exec=0x{:x} size=0x{:x}>",
+				self.dir, self.name, self.load_addr, self.exec_addr,
+				self.file_contents.len()
 			)
 		}
 	}
@@ -341,7 +351,7 @@ mod test_disc {
 		assert_eq!(support::BCD::from_hex(0x11).unwrap(), target.disc_cycle);
 
 		for f in target.into_iter() {
-			println!("Found file {}.{}", *f.dir, f.name);
+			println!("Found file {:?}", f);
 		}
 
 		// Start picking files apart

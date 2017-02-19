@@ -1,7 +1,7 @@
 // Support stuff
 
 use core::ops::Deref;
-use std::fmt::{Formatter, Display, Result as FormatterResult};
+use std::fmt::{Formatter, Display, Debug, Result as FormatterResult};
 
 pub fn inject<T>(dst: &mut [T], src: &[T])
 -> Result<(), usize> where T : Copy + Sized {
@@ -80,7 +80,7 @@ impl PartialEq for BCD {
 }
 
 
-#[derive(PartialEq, Eq, Debug, Clone, Hash)]
+#[derive(PartialEq, Eq, Clone, Hash)]
 pub struct AsciiChar {
 	value: char,
 }
@@ -117,8 +117,13 @@ impl Display for AsciiChar {
 	}
 }
 
+impl Debug for AsciiChar {
+	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
+		write!(f, "<AsciiChar 0x{:2x}/{}", self.value as u8, self)
+	}
+}
 
-#[derive(PartialEq, Eq, Debug, Clone, Hash)]
+#[derive(PartialEq, Eq, Clone, Hash)]
 pub struct AsciiPrintingChar {
 	value: char,
 }
@@ -151,6 +156,11 @@ impl Display for AsciiPrintingChar {
 	}
 }
 
+impl Debug for AsciiPrintingChar {
+	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
+		write!(f, "<AsciiPrintingChar 0x{:2x}/{}>", self.value as u8, self.value)
+	}
+}
 
 #[cfg(test)]
 mod tests {
