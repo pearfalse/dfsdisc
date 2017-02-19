@@ -64,7 +64,7 @@ mod file_p {
 
 	impl fmt::Display for File {
 		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-			write!(f, "{}.{} (load 0x{:x}, exec 0x{:x}, size 0x{:x}",
+			write!(f, "{}.{} (load 0x{:x}, exec 0x{:x}, size 0x{:x})",
 				*self.dir, self.name,
 				self.load_addr, self.exec_addr, self.file_contents.len()
 			)
