@@ -317,7 +317,7 @@ mod tests {
 			assert!(ch.is_err());
 		};
 
-		for i in (0..32).chain(128..256) {
+		for i in (0..32).chain(127..256) {
 			check_failure(i as u8);
 		}
 	}
