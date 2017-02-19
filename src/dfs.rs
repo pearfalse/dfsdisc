@@ -219,7 +219,7 @@ mod disc_p {
 
 		for i in 0..num_catalogue_entries {
 			// First half: filename, directory name, locked bit
-			let offset1 = ((i*1) as usize) + 0x008;
+			let offset1 = ((i*8) as usize) + 0x008;
 			let offset2 = ((i*8) as usize) + 0x108;
 			let name_buf = &src[offset1 .. (offset1 + 7)];
 
@@ -234,8 +234,9 @@ mod disc_p {
 			}
 
 			// Set file name as owned string
-			let mut name_vec = Vec::with_capacity(name_buf.len());
-			for ch in name_buf {
+			let name_len = name_buf.iter().take_while(|&&b| b != 0x20).count();
+			let mut name_vec = Vec::with_capacity(name_len);
+			for ch in name_buf.iter().take(name_len) {
 				name_vec.push(ch & 0x7f);
 			}
 			// All bytes in `name` guaranteed to be 0x020–0x7f
@@ -314,11 +315,7 @@ mod test_disc {
 		// $.Small (12 bytes of '1') load 0x1234 exec 0x5678
 		// A.Single (256 bytes of '2') load 0x8765 exec 0x4321
 		// B.Double (257 bytes of '3') load 0x0111 exec 0x0eee
-		support::inject(&mut src[8..32], b"\
-			Small \x20$\
-			Single\x20A\
-			Double\x20B\
-			").unwrap();
+		support::inject(&mut src[8..32], b"Small\x20\x20$Single\x20ADouble\x20B").unwrap();
 		support::inject(&mut src[0x100..0x108], b"\x20\x20\x20\x20\x11\x18\x00\x06").unwrap();
 		support::inject(&mut src[0x108..0x110], b"\x34\x12\x78\x56\
 			\x0c\x00\x00\x02").unwrap();
@@ -333,8 +330,26 @@ mod test_disc {
 
 		let target = dfs::Disc::from_bytes(&src);
 		assert!(target.is_ok(), format!("{:?}", target.unwrap_err()));
+		let target = target.unwrap().into_inner();
+
+		for f in target.into_iter() {
+			println!("Found file {}.{}", *f.dir, f.name);
+		}
 
 		// Start picking files apart
-		// let file_small
+		let check = |dir: char, name: &str, load: u32, exec: u32, len: usize, byte: u8| {
+			let file = target.into_iter().find(|&f| {
+					*f.dir == dir
+				}).unwrap_or_else(|| panic!("No file found in dir '{}'", dir));
+			assert_eq!(name, file.name);
+			assert_eq!(load, file.load_addr);
+			assert_eq!(exec, file.exec_addr);
+			assert_eq!(len, file.file_contents.len());
+			assert!(file.file_contents.iter().all(|&n| n == byte));
+		};
+
+		check('$', "Small" , 0x1234, 0x5678, 12, 0x31);
+		check('A', "Single", 0x8765, 0x4321, 256, 0x32);
+		check('B', "Double", 0x0111, 0x0eee, 257, 0x33);
 	}
 }
