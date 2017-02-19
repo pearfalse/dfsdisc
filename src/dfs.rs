@@ -26,27 +26,6 @@ mod file_p {
 		pub file_contents: Vec<u8>,
 	}
 
-
-	impl File {
-		pub fn name(&self) -> &str {
-			&self.name
-		}
-
-		pub fn set_name(&mut self, new_name: &str) {
-			self.name = new_name.to_owned();
-		}
-
-		pub fn directory(&self) -> char {
-			*self.dir
-		}
-
-		pub fn set_directory(&mut self, new_dir: u8) -> Result<(), DFSError> {
-			self.dir = try!(AsciiPrintingChar::from_u8(new_dir).
-				map_err({|_| DFSError::InvalidValue }));
-			Ok(())
-		}
-	}
-
 	impl Hash for File {
 		fn hash<H: Hasher>(&self, state: &mut H) {
 			self.dir.hash(state);
