@@ -163,7 +163,7 @@ mod disc_p {
 				// Upper bit must not be set
 				if let Some(bit7_set) = buf.iter().position(|&n| n >= 0x80) {
 					let err_pos = if bit7_set >= 8 { bit7_set + 0xf8 } else { bit7_set };
-					return Err(DFSError::InvalidDiscData(bit7_set));
+					return Err(DFSError::InvalidDiscData(err_pos));
 				}
 
 				let name_len = buf.iter().take_while(|&&b| b >= 32u8).count();
@@ -398,6 +398,13 @@ mod test_disc {
 				_ => false
 			});
 		}
+
+		let disc_bytes = disc_buf_with_name(b"DiscNameAB\xffD");
+		let target = dfs::Disc::from_bytes(&disc_bytes);
+		assert!(target.is_err());
+
+		let target = target.unwrap_err();
+		assert_eq!(dfs::DFSError::InvalidDiscData(0x102), target);
 	}
 
 	#[test]
