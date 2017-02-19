@@ -288,6 +288,14 @@ mod disc_p {
 		Ok(files)
 	}
 
+	impl<'a> IntoIterator for &'a Disc {
+		type Item = &'a File;
+		type IntoIter = hash_set::Iter<'a, File>;
+
+		fn into_iter(self) -> Self::IntoIter {
+			self.files.iter()
+		}
+	}
 }
 pub use dfs::disc_p::*;
 
