@@ -4,7 +4,7 @@ use core::ops::Deref;
 use std::fmt::{Formatter, Display, Debug, Result as FormatterResult};
 
 pub fn inject<T>(dst: &mut [T], src: &[T])
--> Result<(), usize> where T : Copy + Sized {
+-> Result<(), InjectError> where T : Copy + Sized {
 	let src_len = src.len();
 	if src_len == 0 {
 		return Ok(());
@@ -12,19 +12,53 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 
 	let space: usize = dst.len();
 	if src_len > space {
-		return Err(src_len - space);
+		return Err(InjectError::DestinationTooSmall(src_len - space));
+	}
+
+	if slices_overlap(dst, src) {
+		return Err(InjectError::SlicesOverlap);
 	}
 
 	unsafe {
 		use std::ptr;
 		let src_p = &src[0] as *const T;
 		let dst_p = &mut dst[0] as *mut T;
+
 		ptr::copy_nonoverlapping(src_p, dst_p, src.len());
 	}
 
 	Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum InjectError {
+	DestinationTooSmall(usize),
+	SlicesOverlap,
+}
+
+
+pub fn slices_overlap<T>(a: &[T], b: &[T]) -> bool
+where T : Sized {
+	let a_len = a.len() as isize;
+	let b_len = b.len() as isize;
+	if a_len == 0 || b_len == 0 {
+		return false;
+	}
+
+	// Slices too large to compare for overlapping; very unlikely
+	if a_len < 0 || b_len < 0 {
+		panic!("slices_overlap failure: one slice is too large (0x{:x} vs 0x{:x}", a.len(), b.len());
+	}
+
+	unsafe {
+		let a1 = a.get_unchecked(0) as *const T;
+		let a2 = a1.offset(a_len);
+		let b1 = b.get_unchecked(0) as *const T;
+		let b2 = b1.offset(b_len);
+
+		return (a2 > b1) && (b2 > a1);
+	}
+}
 
 pub fn u16_from_le(src: &[u8]) -> u16 {
 	if src.len() != 2 {
@@ -167,6 +201,27 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn test_slices_overlap() {
+		use std::ops::Range;
+
+		let src = [0u8; 9];
+		let check = |a: Range<usize>, b: Range<usize>, expect: bool| {
+			let op = |a: &Range<usize>, b: &Range<usize>, expect: bool| {
+				let result = slices_overlap(&src[a.clone()], &src[b.clone()]);
+				assert_eq!(expect, result, "failed at {:?} vs {:?}", a, b);
+			};
+			op(&a, &b, expect);
+			op(&b, &a, expect);
+		};
+
+		check(0..3, 6..9, false); // completely separate
+		check(0..5, 5..9, false); // touching
+		check(0..5, 4..9, true);  // just overlapping
+		check(0..6, 3..9, true);  // cleanly overlapping
+		check(0..9, 3..6, true);  // one completely encloses the other
+	}
+
+	#[test]
 	fn inject_success() {
 		let mut buf = [0u8; 10];
 		let src = b"DATA_SRC";
@@ -184,7 +239,7 @@ mod tests {
 		let result = inject(&mut buf, src);
 		assert!(result.is_err());
 		let result = result.unwrap_err();
-		assert_eq!(3, result);
+		assert_eq!(InjectError::DestinationTooSmall(3), result);
 	}
 
 	#[test]
