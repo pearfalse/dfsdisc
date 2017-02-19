@@ -1,8 +1,54 @@
-// Support stuff
+//! This module contains various support types used by the DFS parser. Most
+//! of it is to help validate that bytes from disc images really do contain
+//! valid values for what they intend.
 
 use core::ops::Deref;
 use std::fmt::{Formatter, Display, Debug, Result as FormatterResult};
 
+/// Overwrites one range of values in a slice with another by copying `src`
+/// into `dst`.
+///
+/// Functionally, this is identical to C's `memcpy`, but with more detection of
+/// invalid preconditions. It is designed for byte slices, but will work for
+/// any sized intrinsic type.
+///
+/// # Safety
+/// This function uses [`std::mem::copy_nonoverlapping`]
+/// (https://doc.rust-lang.org/std/ptr/fn.copy_nonoverlapping.html)
+/// under the hood, so its rules about safety also apply here. This function is safe
+/// for intrinsic types (e.g. `u8`, `bool`).
+///
+/// # Errors
+/// * `DestinationTooSmall(usize)`: The destination slice doesn't have space to
+/// hold all elements from the source. The attached `usize` indicates how many
+/// elements short `dst` was.
+/// * `SlicesOverlap`: If `dst` and `src` are slices overlapping the same region
+/// of memory.
+///
+/// # Examples
+///
+/// To change the start of a long byte buffer:
+///
+/// ```
+/// use dfsdisc::support;
+///
+/// let mut buffer = [0u8; 0x2000];
+/// support::inject(&mut buffer, b"NewHeader").unwrap();
+/// assert_eq!(b"NewHeader", &buffer[0..9]);
+/// ```
+///
+/// Or, to add values further in:
+///
+/// ```
+/// use dfsdisc::support;
+/// use std::iter;
+///
+/// let mut buffer = [0u16; 250];
+/// let trailer = [0xffffu16; 10];
+/// support::inject(&mut buffer[240..], &trailer).unwrap();
+/// assert!(buffer[240..].iter().all(|&x| x == 0xffff));
+/// ```
+///
 pub fn inject<T>(dst: &mut [T], src: &[T])
 -> Result<(), InjectError> where T : Copy + Sized {
 	let src_len = src.len();
@@ -31,12 +77,14 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// Reasons why `[inject](./fn.inject.html)` may fail.
 pub enum InjectError {
 	DestinationTooSmall(usize),
 	SlicesOverlap,
 }
 
-
+/// Checks whether two slices overlap in memory, such that
+/// at least one element shows up in both.
 pub fn slices_overlap<T>(a: &[T], b: &[T]) -> bool
 where T : Sized {
 	let a_len = a.len() as isize;
@@ -60,6 +108,10 @@ where T : Sized {
 	}
 }
 
+/// Converts a 2-byte slice into a `u16`, assuming a little-endian word layout.
+///
+/// # Panics
+/// The slice must have a length of 2, otherwise this function will panic.
 pub fn u16_from_le(src: &[u8]) -> u16 {
 	if src.len() != 2 {
 		panic!("u16_from_le called with invalid slice length; should be 2, is {}", src.len());
@@ -71,17 +123,30 @@ pub fn u16_from_le(src: &[u8]) -> u16 {
 
 
 #[derive(Clone, Copy, Eq, Debug)]
+/// Container for a binary-coded decimal byte.
 pub struct BCD {
 	value: u8
 }
 
+/// Reasons why constructing a [`BCD`] may fail.
+///
+/// [`BCD`]: struct.BCD.html
 #[derive(Debug, PartialEq, Eq)]
 pub enum BCDError {
+	/// The given integer value was over 99.
 	IntValueTooLarge,
+	/// The given hex value was not valid BCD.
 	InvalidHexValue,
 }
 
 impl BCD {
+	/// Constructs a `BCD` from a decimal value.
+	///
+	/// # Errors
+	/// Will return a [`BCDError`] if the supplied decimal value was out of
+	/// range.
+	///
+	/// [`BCDError`]: enum.BCDError.html
 	pub fn from_u8(src: u8) -> Result<BCD, BCDError> {
 		match src {
 			x if x <= 99 => {
@@ -93,10 +158,17 @@ impl BCD {
 		}
 	}
 
+	/// Converts a `BCD` back into its decimal value.
 	pub fn into_u8(self) -> u8 {
 		(self.value >> 4) + (self.value & 15)
 	}
 
+	/// Constructs a `BCD` from a pre-encoded BCD representation.
+	///
+	/// # Errors
+	/// Will return a [`BCDError`] if the supplied byte is not valid for BCD.
+	///
+	/// [`BCDError`]: enum.BCDError.html
 	pub fn from_hex(src: u8) -> Result<BCD, BCDError> {
 		if ((src & 0xf0) >= 0xa0) || ((src & 0x0f) >= 0x0a) {
 			Err(BCDError::InvalidHexValue)
@@ -113,13 +185,19 @@ impl PartialEq for BCD {
 	}
 }
 
-
+/// A `char` wrapper guaranteed to only contain ASCII characters.
+///
+/// This type dereferences to `char`.
 #[derive(PartialEq, Eq, Clone, Hash)]
 pub struct AsciiChar {
 	value: char,
 }
 
 impl AsciiChar {
+	/// Constructs an `AsciiChar` from a byte.
+	///
+	/// # Errors
+	/// Will fail if the byte is `0x80` or greater.
 	pub fn from_u8(src: u8) -> Result<AsciiChar, ()> {
 		match src {
 			x if x < 0x80 => Ok(AsciiChar {value: x as char}),
@@ -134,6 +212,8 @@ impl From<AsciiChar> for u8 {
 	}
 }
 
+// Documentation suppressed to prevent all of char's methods leaking in
+#[doc(hidden)]
 impl Deref for AsciiChar {
 	type Target = char;
 	fn deref(&self) -> &char {
@@ -141,6 +221,8 @@ impl Deref for AsciiChar {
 	}
 }
 
+/// Prints the `char` if it is a printable character, otherwise
+/// prints a C-style escaped variant.
 impl Display for AsciiChar {
 	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
 		if self.value < '\x20' {
@@ -157,12 +239,19 @@ impl Debug for AsciiChar {
 	}
 }
 
+/// A `char` wrapper guaranteed to only contain printable ASCII characters.
+///
+/// This type dereferences to `char`.
 #[derive(PartialEq, Eq, Clone, Hash)]
 pub struct AsciiPrintingChar {
 	value: char,
 }
 
 impl AsciiPrintingChar {
+	/// Constructs an `AsciiPrintingCharChar` from a byte.
+	///
+	/// # Errors
+	/// Will fail if the byte does not map to a printing ASCII character.
 	pub fn from_u8(src: u8) -> Result<AsciiPrintingChar, ()> {
 		match src {
 			x if x >= 0x20 && x < 0x7f => Ok(AsciiPrintingChar {value: x as char}),
@@ -177,6 +266,8 @@ impl From<AsciiPrintingChar> for u8 {
 	}
 }
 
+// Documentation suppressed to prevent all of char's methods leaking in
+#[doc(hidden)]
 impl Deref for AsciiPrintingChar {
 	type Target = char;
 	fn deref(&self) -> &char {
@@ -184,6 +275,7 @@ impl Deref for AsciiPrintingChar {
 	}
 }
 
+/// Prints the underlying `char` directly.
 impl Display for AsciiPrintingChar {
 	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
 		write!(f, "{}", self.value)

@@ -1,8 +1,10 @@
+//! Types and conversions for DFS disc images.
+
+/// Sector size in all known DFS implementations.
 pub const SECTOR_SIZE: usize = 256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DFSError {
-	Unknown,
 	InvalidValue,
 	InputTooSmall(usize),
 	InvalidDiscData(usize),
@@ -13,16 +15,25 @@ mod file_p {
 	use std::hash::{Hash, Hasher};
 	use std::fmt;
 
-	use dfs::*;
 	use support::{AsciiPrintingChar};
 
+	/// A representation of a file in a DFS disc.
+	///
+	/// The identity of a `File` (equality, hashing etc.) is determined by the
+	/// file's name, directory, load address and execution address.
 	#[derive(Eq)]
 	pub struct File {
+		/// The DFS directory that this file lives in.
 		pub dir: AsciiPrintingChar,
-		pub name: String,
+		/// The name of the file.
+		pub name: String, // TODO: constrain to 7 chars, either with a new wrapper type or hiding the field
+		/// The address in memory where an OS would load this file.
 		pub load_addr: u32,
+		/// The address in memory where, upon loading the file, the OS would begin executing.
 		pub exec_addr: u32,
+		/// Whether the file is locked on disc.
 		pub locked: bool,
+		/// The contents of the file.
 		pub file_contents: Vec<u8>,
 	}
 
@@ -82,6 +93,8 @@ mod disc_p {
 	use dfs::*;
 	use support::*;
 
+	/// What a DFS-supporting OS would do with a [`Disc`](./struct.Disc.html)
+	/// found in the drive during a Shift-BREAK.
 	#[derive(Debug, PartialEq)]
 	pub enum BootOption {
 		None,
@@ -102,6 +115,14 @@ mod disc_p {
 	}
 
 	impl BootOption {
+		/// Attempts to parse a `BootOption` from its `*OPT 4` value. This
+		/// function mimics the interface of the (currently unstable)
+		/// [`TryFrom`](https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html)
+		/// trait.
+		///
+		/// # Errors
+		/// * [`DFSError::InvalidValue`](./enum.DFSError.html): The given byte
+		/// would not convert to a `BootOption`.
 		fn try_from(src : u8) -> Result<BootOption, DFSError> {
 			match src {
 				0u8 => Ok(BootOption::None),
@@ -113,11 +134,12 @@ mod disc_p {
 		}
 	}
 
+	/// Representation of a single-sided DFS disc.
 	#[derive(Debug)]
 	pub struct Disc {
-		pub disc_name: String,
+		pub name: String,
 		pub boot_option: BootOption,
-		pub disc_cycle: BCD,
+		pub cycle: BCD,
 
 		files: HashSet<File>,
 
@@ -125,6 +147,52 @@ mod disc_p {
 
 	impl Disc {
 
+		/// Decodes a slice of bytes from a disc image into a `Disc`.
+		///
+		/// As DFS discs could only reach 200KiB in size, there is no provision
+		/// for buffered reading.
+		///
+		/// # Errors
+		/// * [`DFSError::InputTooSmall(usize)`][DFSError]: `src` was too small
+		/// to be a valid DFS disc image. The attached `usize` indicates the
+		/// minimum correct size in bytes, which is 512.
+		/// * [`DFSError::InvalidDiscData(usize)`][DFSError]: `src` did not
+		/// decode to a valid DFS disc. The attached `usize` is an offset into
+		/// `src` where the offending data was found.
+		/// * [`DFSError::DuplicateFileName`][DFSError]: Two files were found
+		/// with the same name and directory entry. Whether these two files
+		/// to the same on-disc data is not checked.
+		///
+		/// [DFSError]: ./enum.DFSError.html
+		///
+		/// # Examples
+		///
+		/// ```rust,no_run
+		/// use dfsdisc::dfs;
+		/// use std::fs::File;
+		/// use std::io::Read;
+		///
+		/// let mut disc_bytes = Vec::new();
+		/// {
+		/// 	let mut file = File::open("dfsimage.ssd").unwrap();
+		/// 	file.read_to_end(&mut disc_bytes).unwrap();
+		/// }
+		///
+		/// let disc = match dfs::Disc::from_bytes(disc_bytes.as_slice()) {
+		/// 	Ok(x) => {
+		/// 		x.into_inner()
+		/// 	},
+		/// 	Err(e) => {
+		/// 		println!("Error parsing disc: {:?}", e);
+		/// 		return;
+		/// 	}
+		/// };
+		///
+		/// println!("Files in {}:", disc.name);
+		/// for file in &disc {
+		/// 	println!("--> {}", file);
+		/// }
+		/// ```
 		pub fn from_bytes(src: &[u8]) -> Result<RefCell<Disc>, DFSError> {
 
 			// Must have minimum size for two sectors
@@ -185,10 +253,10 @@ mod disc_p {
 			let files = try!(populate_files(src));
 
 			let disc = Disc {
-				disc_name: disc_name,
+				name: disc_name,
 				files: files,
 				boot_option: boot_option,
-				disc_cycle: disc_cycle,
+				cycle: disc_cycle,
 			};
 
 			Ok(RefCell::new(disc))
@@ -327,7 +395,7 @@ mod test_disc {
 		let target = target.unwrap().into_inner();
 
 		// Check cycle count
-		assert_eq!(support::BCD::from_hex(0x11).unwrap(), target.disc_cycle);
+		assert_eq!(support::BCD::from_hex(0x11).unwrap(), target.cycle);
 
 		for f in target.into_iter() {
 			println!("Found file {:?}", f);
@@ -364,7 +432,7 @@ mod test_disc {
 		assert!(target.is_ok(), format!("returned error {:?}", target.unwrap_err()));
 
 		let target = target.unwrap().into_inner();
-		assert_eq!(test_name, target.disc_name.as_bytes());
+		assert_eq!(test_name, target.name.as_bytes());
 	}
 
 	#[test]
