@@ -11,6 +11,7 @@ pub enum DFSError {
 
 mod file_p {
 	use std::hash::{Hash, Hasher};
+	use std::fmt;
 
 	use dfs::*;
 	use support::{AsciiChar, AsciiPrintingChar};
@@ -71,6 +72,14 @@ mod file_p {
 		}
 	}
 
+	impl fmt::Display for File {
+		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+			write!(f, "{}.{} (load {:x}, exec {:x}, size {:x})",
+				*self.dir, self.name,
+				self.load_addr, self.exec_addr, self.file_contents.len()
+			)
+		}
+	}
 }
 pub use dfs::file_p::*;
 
