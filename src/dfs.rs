@@ -187,7 +187,7 @@ mod disc_p {
 
 			let disc_cycle = {
 				const OFFSET : usize = 0x104;
-				try!(BCD::from_u8(src[OFFSET])
+				try!(BCD::from_hex(src[OFFSET])
 					.map_err(|e| DFSError::InvalidDiscData(OFFSET)))
 			};
 
@@ -315,7 +315,7 @@ mod test_disc {
 		// $.Small (12 bytes of '1') load 0x1234 exec 0x5678
 		// A.Single (256 bytes of '2') load 0x8765 exec 0x4321
 		// B.Double (257 bytes of '3') load 0x0111 exec 0x0eee
-		support::inject(&mut src[8..32], b"Small\x20\x20$Single\x20ADouble\x20B").unwrap();
+		support::inject(&mut src[8..40], b"Small\x20\x20$Single\x20ADouble\x20BNEVER\x20\x20C").unwrap();
 		support::inject(&mut src[0x100..0x108], b"\x20\x20\x20\x20\x11\x18\x00\x06").unwrap();
 		support::inject(&mut src[0x108..0x110], b"\x34\x12\x78\x56\
 			\x0c\x00\x00\x02").unwrap();
@@ -323,6 +323,9 @@ mod test_disc {
 			\x00\x01\x00\x03").unwrap();
 		support::inject(&mut src[0x118..0x120], b"\x11\x01\xee\x0e\
 			\x01\x01\x00\x04").unwrap();
+		// Don't parse this file!
+		support::inject(&mut src[0x120..0x128], b"\xff\xff\xbb\xbb\
+			\x01\x00\x00\x05");
 
 		support::inject(&mut src[0x200..0x20c], &[0x31u8; 12]).unwrap();
 		support::inject(&mut src[0x300..0x400], &[0x32u8; 256]).unwrap();
@@ -332,12 +335,16 @@ mod test_disc {
 		assert!(target.is_ok(), format!("{:?}", target.unwrap_err()));
 		let target = target.unwrap().into_inner();
 
+		// Check cycle count
+		assert_eq!(support::BCD::from_hex(0x11).unwrap(), target.disc_cycle);
+
 		for f in target.into_iter() {
 			println!("Found file {}.{}", *f.dir, f.name);
 		}
 
 		// Start picking files apart
 		let check = |dir: char, name: &str, load: u32, exec: u32, len: usize, byte: u8| {
+			println!("Checking {}.{}...", dir, name);
 			let file = target.into_iter().find(|&f| {
 					*f.dir == dir
 				}).unwrap_or_else(|| panic!("No file found in dir '{}'", dir));
@@ -351,6 +358,10 @@ mod test_disc {
 		check('$', "Small" , 0x1234, 0x5678, 12, 0x31);
 		check('A', "Single", 0x8765, 0x4321, 256, 0x32);
 		check('B', "Double", 0x0111, 0x0eee, 257, 0x33);
+
+		assert_eq!(None, target.into_iter().find(|&f| {
+			*f.dir == 'C'
+		}));
 	}
 
 	#[test]
