@@ -219,27 +219,51 @@ mod tests {
 		check(0..5, 4..9, true);  // just overlapping
 		check(0..6, 3..9, true);  // cleanly overlapping
 		check(0..9, 3..6, true);  // one completely encloses the other
+		check(0..9, 6..9, true);  // one edge overlaps
 	}
 
 	#[test]
-	fn inject_success() {
-		let mut buf = [0u8; 10];
-		let src = b"DATA_SRC";
+	fn test_inject() {
+		use std::slice;
+		use std::cell::UnsafeCell;
 
-		let result = inject(&mut buf, src);
-		assert!(result.is_ok());
-		assert_eq!(b"DATA_SRC\x00\x00", &buf);
-	}
+		// Normal success case
+		{
+			let mut buf = [0u8; 10];
+			let src = b"DATA_SRC";
 
-	#[test]
-	fn inject_fail() {
-		let mut buf = [0u8; 1];
-		let src = b"FOUR";
+			let result = inject(&mut buf, src);
+			assert!(result.is_ok());
+			assert_eq!(b"DATA_SRC\x00\x00", &buf);
+		}
 
-		let result = inject(&mut buf, src);
-		assert!(result.is_err());
-		let result = result.unwrap_err();
-		assert_eq!(InjectError::DestinationTooSmall(3), result);
+		// Destination too small
+		{
+			let mut buf = [0u8; 1];
+			let src = b"FOUR";
+
+			let result = inject(&mut buf, src);
+			assert!(result.is_err());
+			let result = result.unwrap_err();
+			assert_eq!(InjectError::DestinationTooSmall(3), result);
+		}
+
+		// Slices overlap
+		{
+			const ARR_SIZE: usize = 4;
+			let buf = UnsafeCell::new([0u8; ARR_SIZE]);
+			let mut dst = unsafe {
+				slice::from_raw_parts_mut((*buf.get()).get_unchecked_mut(0) as *mut u8, ARR_SIZE)
+			};
+			let src = unsafe {
+				slice::from_raw_parts((*buf.get()).get_unchecked(0) as *const u8, 2)
+			};
+
+			let result = inject(dst, src);
+			assert!(result.is_err());
+			let result = result.unwrap_err();
+			assert_eq!(InjectError::SlicesOverlap, result);
+		}
 	}
 
 	#[test]
