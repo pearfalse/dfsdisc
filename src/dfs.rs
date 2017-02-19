@@ -14,7 +14,7 @@ mod file_p {
 	use std::fmt;
 
 	use dfs::*;
-	use support::{AsciiChar, AsciiPrintingChar};
+	use support::{AsciiPrintingChar};
 
 	#[derive(Debug, Eq)]
 	pub struct File {
@@ -86,10 +86,8 @@ pub use dfs::file_p::*;
 mod disc_p {
 
 	use std::collections::HashSet;
-	use core::cell::{Cell,RefCell};
-	use std::rc::{Rc,Weak};
+	use core::cell::{RefCell};
 	use core::convert::From;
-	use std::iter;
 	use std::collections::hash_set;
 
 	use dfs::*;
@@ -172,7 +170,11 @@ mod disc_p {
 				unsafe { String::from_utf8_unchecked(buf[..name_len].to_vec()) }
 			};
 
-			let sector_count = {
+			// Disc sector count calculation. We don't check this against the
+			// length of `src`, as it's common to have this value declare all
+			// 40 or 80 tracks, for a disc image to then only include the ones
+			// containing file data. The source extent _is_ checked per-file.
+			{
 				const OFFSET : usize = 0x107;
 				let upper = ((src[OFFSET - 1] & 3) as u16) << 8;
 				let result = (src[OFFSET] as u16) | upper;
@@ -188,12 +190,12 @@ mod disc_p {
 			let disc_cycle = {
 				const OFFSET : usize = 0x104;
 				try!(BCD::from_hex(src[OFFSET])
-					.map_err(|e| DFSError::InvalidDiscData(OFFSET)))
+					.map_err(|_| DFSError::InvalidDiscData(OFFSET)))
 			};
 
-			let mut files = try!(populate_files(src));
+			let files = try!(populate_files(src));
 
-			let mut disc = Disc {
+			let disc = Disc {
 				disc_name: disc_name,
 				files: files,
 				boot_option: boot_option,
@@ -268,7 +270,7 @@ mod disc_p {
 
 			let file_contents = &src[(data_start as usize)..(data_end as usize)];
 
-			let mut file = File {
+			let file = File {
 				dir: dir.clone(),
 				name: name,
 				load_addr: load_addr,
@@ -325,7 +327,7 @@ mod test_disc {
 			\x01\x01\x00\x04").unwrap();
 		// Don't parse this file!
 		support::inject(&mut src[0x120..0x128], b"\xff\xff\xbb\xbb\
-			\x01\x00\x00\x05");
+			\x01\x00\x00\x05").unwrap();
 
 		support::inject(&mut src[0x200..0x20c], &[0x31u8; 12]).unwrap();
 		support::inject(&mut src[0x300..0x400], &[0x32u8; 256]).unwrap();
