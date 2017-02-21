@@ -49,6 +49,7 @@ use std::fmt::{Formatter, Display, Debug, Result as FormatterResult};
 /// assert!(buffer[240..].iter().all(|&x| x == 0xffff));
 /// ```
 ///
+// TODO: is this a redundant reimplementation of clone_from_slice?
 pub fn inject<T>(dst: &mut [T], src: &[T])
 -> Result<(), InjectError> where T : Copy + Sized {
 	let src_len = src.len();
