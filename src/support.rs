@@ -78,7 +78,7 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// Reasons why `[inject](./fn.inject.html)` may fail.
+/// Reasons why [`inject`](./fn.inject.html) may fail.
 pub enum InjectError {
 	DestinationTooSmall(usize),
 	SlicesOverlap,
