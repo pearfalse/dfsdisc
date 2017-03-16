@@ -80,7 +80,9 @@ pub fn inject<T>(dst: &mut [T], src: &[T])
 #[derive(Debug, PartialEq, Eq)]
 /// Reasons why [`inject`](./fn.inject.html) may fail.
 pub enum InjectError {
+	/// The injection destination is too small by the attached number of bytes.
 	DestinationTooSmall(usize),
+	/// The two slices of memory overlap by at least one byte.
 	SlicesOverlap,
 }
 
