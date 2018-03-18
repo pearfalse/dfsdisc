@@ -3,5 +3,14 @@ name = "dfsdisc"
 version = "0.1.0"
 authors = ["Simon Harris <simon@pearfalse.com>"]
 
+[lib]
+name = "dfsdisc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dfs"
+path = "src/main.rs"
+
 [dependencies]
 ascii = ">= 0.8"
+clap = "2.20"
