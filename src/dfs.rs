@@ -17,6 +17,8 @@ mod file_p {
 
 	use support::{AsciiPrintingChar};
 
+	use ascii::{AsciiStr,AsciiString};
+
 	/// A representation of a file in a DFS disc.
 	///
 	/// The identity of a `File` (equality, hashing etc.) is determined by the
@@ -90,6 +92,7 @@ mod disc_p {
 
 	use dfs::*;
 	use support::*;
+	use ascii::{AsciiStr,AsciiString};
 
 	/// What a DFS-supporting OS would do with a [`Disc`](./struct.Disc.html)
 	/// found in the drive during a Shift-BREAK.
@@ -135,7 +138,7 @@ mod disc_p {
 	/// Representation of a single-sided DFS disc.
 	#[derive(Debug)]
 	pub struct Disc {
-		pub name: String,
+		pub name: AsciiString,
 		pub boot_option: BootOption,
 		pub cycle: BCD,
 
@@ -198,31 +201,31 @@ mod disc_p {
 				return Err(DFSError::InputTooSmall(SECTOR_SIZE * 2))
 			}
 
-			let disc_name: String = {
-				let mut buf: [u8; 12];
-				unsafe {
+			let disc_name: AsciiString = {
+				let buf = unsafe {
 					use core::mem;
 
 					// 12 bytes of u8
 					// First 8 come from buf[0x000..0x008]
 					// Second 4 come from buf[0x100..0x104]
 					// We already know the source is big enough
-					buf = mem::uninitialized();
+					let mut b: [u8; 12] = mem::uninitialized();
+					b[..8].copy_from_slice(&src[0x000..0x008]);
+					b[8..].copy_from_slice(&src[0x100..0x104]);
 
-					inject(&mut buf, &src[0x000..0x008]).unwrap();
-					inject(&mut buf[8..], &src[0x100..0x104]).unwrap();
-				}
+					b
+				};
 
-				// Upper bit must not be set
-				if let Some(bit7_set) = buf.iter().position(|&n| n >= 0x80) {
-					let err_pos = if bit7_set >= 8 { bit7_set + 0xf8 } else { bit7_set };
-					return Err(DFSError::InvalidDiscData(err_pos));
-				}
-
-				let name_len = buf.iter().take_while(|&&b| b >= 32u8).count();
-
-				// Guaranteed ASCII at this point
-				unsafe { String::from_utf8_unchecked(buf[..name_len].to_vec()) }
+				let name_len = buf.iter().take_while(|&&b| b > 32u8).count();
+				AsciiString::from_ascii(&buf[..name_len]).map_err(|e| {
+					let str_pos = e.ascii_error().valid_up_to();
+					// Decode index position back to byte offset
+					DFSError::InvalidDiscData(if str_pos >= 8 {
+						str_pos + 0xf8 // start of second sector; 0x008 -> 0x100
+					} else {
+						str_pos
+					})
+				})?
 			};
 
 			// Disc sector count calculation. We don't check this against the
@@ -361,39 +364,34 @@ pub use dfs::disc_p::*;
 mod test_disc {
 
 	use dfs;
-	use support;
-
+	use support::*;
 
 	#[test]
 	fn from_bytes_files_success() {
 		let mut src = [0u8; dfs::SECTOR_SIZE * 6];
-		support::inject(&mut src[0..8], b"Discname").unwrap();
+		src[0..8].copy_from_slice(b"Discname");
 		// Three files:
 		// $.Small (12 bytes of '1') load 0x1234 exec 0x5678
 		// A.Single (256 bytes of '2') load 0x8765 exec 0x4321
 		// B.Double (257 bytes of '3') load 0x0111 exec 0x0eee
-		support::inject(&mut src[8..40], b"Small\x20\x20$Single\x20ADouble\x20BNEVER\x20\x20C").unwrap();
-		support::inject(&mut src[0x100..0x108], b"\x20\x20\x20\x20\x11\x18\x00\x06").unwrap();
-		support::inject(&mut src[0x108..0x110], b"\x34\x12\x78\x56\
-			\x0c\x00\x00\x02").unwrap();
-		support::inject(&mut src[0x110..0x118], b"\x65\x87\x21\x43\
-			\x00\x01\x00\x03").unwrap();
-		support::inject(&mut src[0x118..0x120], b"\x11\x01\xee\x0e\
-			\x01\x01\x00\x04").unwrap();
+		src[8..40].copy_from_slice(b"Small\x20\x20$Single\x20ADouble\x20BNEVER\x20\x20C");
+		src[0x100..0x108].copy_from_slice(b"\x20\x20\x20\x20\x11\x18\x00\x06");
+		src[0x108..0x110].copy_from_slice(b"\x34\x12\x78\x56\x0c\x00\x00\x02");
+		src[0x110..0x118].copy_from_slice(b"\x65\x87\x21\x43\x00\x01\x00\x03");
+		src[0x118..0x120].copy_from_slice(b"\x11\x01\xee\x0e\x01\x01\x00\x04");
 		// Don't parse this file!
-		support::inject(&mut src[0x120..0x128], b"\xff\xff\xbb\xbb\
-			\x01\x00\x00\x05").unwrap();
+		src[0x120..0x128].copy_from_slice(b"\xff\xff\xbb\xbb\x01\x00\x00\x05");
 
-		support::inject(&mut src[0x200..0x20c], &[0x31u8; 12]).unwrap();
-		support::inject(&mut src[0x300..0x400], &[0x32u8; 256]).unwrap();
-		support::inject(&mut src[0x400..0x501], &[0x33u8; 257]).unwrap();
+		src[0x200..0x20c].copy_from_slice(&[0x31u8; 12]);
+		src[0x300..0x400].copy_from_slice(&[0x32u8; 256]);
+		src[0x400..0x501].copy_from_slice(&[0x33u8; 257]);
 
 		let target = dfs::Disc::from_bytes(&src);
 		assert!(target.is_ok(), format!("{:?}", target.unwrap_err()));
 		let target = target.unwrap();
 
 		// Check cycle count
-		assert_eq!(support::BCD::from_hex(0x11).unwrap(), target.cycle);
+		assert_eq!(BCD::from_hex(0x11).unwrap(), target.cycle);
 
 		for f in target.into_iter() {
 			println!("Found file {:?}", f);
@@ -435,25 +433,17 @@ mod test_disc {
 
 	#[test]
 	fn disc_name_top_bits_set() {
-		let disc_name = b"DiscName";
+		let disc_name = ::ascii::AsciiStr::from_ascii(b"DiscName").unwrap();
 
 		for i in 0..8 {
 			let mut buf = [0u8; 8];
-			support::inject(&mut buf, disc_name).unwrap();
+			buf.copy_from_slice(disc_name.as_str().as_bytes());
 			buf[i] |= 0x80; // set a high bit
 
 			let disc_bytes = disc_buf_with_name(&buf);
 
-			let target = dfs::Disc::from_bytes(&disc_bytes);
-			assert!(target.is_err());
-			let target = target.unwrap_err();
-			assert!(match target {
-				dfs::DFSError::InvalidDiscData(at_point) => {
-					assert_eq!(i, at_point);
-					true
-				},
-				_ => false
-			});
+			let target = dfs::Disc::from_bytes(&disc_bytes).unwrap_err();
+			assert_eq!(target, dfs::DFSError::InvalidDiscData(i));
 		}
 
 		let disc_bytes = disc_buf_with_name(b"DiscNameAB\xffD");
@@ -462,6 +452,13 @@ mod test_disc {
 
 		let target = target.unwrap_err();
 		assert_eq!(dfs::DFSError::InvalidDiscData(0x102), target);
+
+		// a space should be a terminator
+		let disc_bytes = disc_buf_with_name(b"DiscName \xff\xff\xff");
+		let target = dfs::Disc::from_bytes(&disc_bytes);
+		assert!(target.is_ok());
+		assert_eq!(target.unwrap().name.as_str(), disc_name.as_str());
+
 	}
 
 	#[test]
@@ -504,8 +501,9 @@ mod test_disc {
 
 	fn disc_buf_with_name(name: &[u8]) -> [u8 ; dfs::SECTOR_SIZE * 2] {
 		let mut buf = [0u8 ; dfs::SECTOR_SIZE * 2];
-		support::inject(&mut buf, &name[..8]).unwrap();
-		support::inject(&mut buf[0x100..], &name[8..]).unwrap();
+		let parts = name.split_at(8);
+		buf.copy_from_common_slice(parts.0);
+		buf[0x100..].copy_from_common_slice(parts.1);
 		buf[0x107] = 2; // sector count
 		buf
 	}

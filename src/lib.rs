@@ -4,6 +4,7 @@
 #![crate_type = "lib"]
 
 extern crate core;
+extern crate ascii;
 
 pub mod support;
 pub mod dfs;

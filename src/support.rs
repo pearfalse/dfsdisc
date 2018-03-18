@@ -5,109 +5,14 @@
 use core::ops::Deref;
 use std::fmt::{Formatter, Display, Debug, Result as FormatterResult};
 
-/// Overwrites one range of values in a slice with another by copying `src`
-/// into `dst`.
-///
-/// Functionally, this is identical to C's `memcpy`, but with more detection of
-/// invalid preconditions. It is designed for byte slices, but will work for
-/// any sized intrinsic type.
-///
-/// # Safety
-/// This function uses [`std::mem::copy_nonoverlapping`]
-/// (https://doc.rust-lang.org/std/ptr/fn.copy_nonoverlapping.html)
-/// under the hood, so its rules about safety also apply here. This function is safe
-/// for intrinsic types (e.g. `u8`, `bool`).
-///
-/// # Errors
-/// * `DestinationTooSmall(usize)`: The destination slice doesn't have space to
-/// hold all elements from the source. The attached `usize` indicates how many
-/// elements short `dst` was.
-/// * `SlicesOverlap`: If `dst` and `src` are slices overlapping the same region
-/// of memory.
-///
-/// # Examples
-///
-/// To change the start of a long byte buffer:
-///
-/// ```
-/// use dfsdisc::support;
-///
-/// let mut buffer = [0u8; 0x2000];
-/// support::inject(&mut buffer, b"NewHeader").unwrap();
-/// assert_eq!(b"NewHeader", &buffer[0..9]);
-/// ```
-///
-/// Or, to add values further in:
-///
-/// ```
-/// use dfsdisc::support;
-/// use std::iter;
-///
-/// let mut buffer = [0u16; 250];
-/// let trailer = [0xffffu16; 10];
-/// support::inject(&mut buffer[240..], &trailer).unwrap();
-/// assert!(buffer[240..].iter().all(|&x| x == 0xffff));
-/// ```
-///
-// TODO: is this a redundant reimplementation of clone_from_slice?
-pub fn inject<T>(dst: &mut [T], src: &[T])
--> Result<(), InjectError> where T : Copy + Sized {
-	let src_len = src.len();
-	if src_len == 0 {
-		return Ok(());
-	}
-
-	let space: usize = dst.len();
-	if src_len > space {
-		return Err(InjectError::DestinationTooSmall(src_len - space));
-	}
-
-	if slices_overlap(dst, src) {
-		return Err(InjectError::SlicesOverlap);
-	}
-
-	unsafe {
-		use std::ptr;
-		let src_p = &src[0] as *const T;
-		let dst_p = &mut dst[0] as *mut T;
-
-		ptr::copy_nonoverlapping(src_p, dst_p, src.len());
-	}
-
-	Ok(())
+pub trait CopyFromCommonSliceExt<T> {
+	fn copy_from_common_slice(&mut self, src: &[T]);
 }
 
-#[derive(Debug, PartialEq, Eq)]
-/// Reasons why [`inject`](./fn.inject.html) may fail.
-pub enum InjectError {
-	/// The injection destination is too small by the attached number of bytes.
-	DestinationTooSmall(usize),
-	/// The two slices of memory overlap by at least one byte.
-	SlicesOverlap,
-}
-
-/// Checks whether two slices overlap in memory, such that
-/// at least one element shows up in both.
-pub fn slices_overlap<T>(a: &[T], b: &[T]) -> bool
-where T : Sized {
-	let a_len = a.len() as isize;
-	let b_len = b.len() as isize;
-	if a_len == 0 || b_len == 0 {
-		return false;
-	}
-
-	// Slices too large to compare for overlapping; very unlikely
-	if a_len < 0 || b_len < 0 {
-		panic!("slices_overlap failure: one slice is too large (0x{:x} vs 0x{:x}", a.len(), b.len());
-	}
-
-	unsafe {
-		let a1 = a.get_unchecked(0) as *const T;
-		let a2 = a1.offset(a_len);
-		let b1 = b.get_unchecked(0) as *const T;
-		let b2 = b1.offset(b_len);
-
-		return (a2 > b1) && (b2 > a1);
+impl<T> CopyFromCommonSliceExt<T> for [T] where T: Copy + Sized {
+	fn copy_from_common_slice(&mut self, src: &[T]) {
+		let max_size = self.len().min(src.len());
+		self[..max_size].copy_from_slice(&src[..max_size])
 	}
 }
 
@@ -296,69 +201,21 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_slices_overlap() {
-		use std::ops::Range;
+	fn copy_from_common_slice() {
+		let full1 = b"01234567";
+		let full2 = b"ABCDEFGH";
 
-		let src = [0u8; 9];
-		let check = |a: Range<usize>, b: Range<usize>, expect: bool| {
-			let op = |a: &Range<usize>, b: &Range<usize>, expect: bool| {
-				let result = slices_overlap(&src[a.clone()], &src[b.clone()]);
-				assert_eq!(expect, result, "failed at {:?} vs {:?}", a, b);
-			};
-			op(&a, &b, expect);
-			op(&b, &a, expect);
+		let case = |r1: ::std::ops::Range<usize>, r2: ::std::ops::Range<usize>, result: &'static [u8]| {
+			let mut buf = [0u8; 8];
+			buf.copy_from_slice(full1);
+			buf[r1].copy_from_common_slice(&full2[r2]);
+			assert_eq!(buf, result);
 		};
 
-		check(0..3, 6..9, false); // completely separate
-		check(0..5, 5..9, false); // touching
-		check(0..5, 4..9, true);  // just overlapping
-		check(0..6, 3..9, true);  // cleanly overlapping
-		check(0..9, 3..6, true);  // one completely encloses the other
-		check(0..9, 6..9, true);  // one edge overlaps
-	}
-
-	#[test]
-	fn test_inject() {
-		use std::slice;
-		use std::cell::UnsafeCell;
-
-		// Normal success case
-		{
-			let mut buf = [0u8; 10];
-			let src = b"DATA_SRC";
-
-			let result = inject(&mut buf, src);
-			assert!(result.is_ok());
-			assert_eq!(b"DATA_SRC\x00\x00", &buf);
-		}
-
-		// Destination too small
-		{
-			let mut buf = [0u8; 1];
-			let src = b"FOUR";
-
-			let result = inject(&mut buf, src);
-			assert!(result.is_err());
-			let result = result.unwrap_err();
-			assert_eq!(InjectError::DestinationTooSmall(3), result);
-		}
-
-		// Slices overlap
-		{
-			const ARR_SIZE: usize = 4;
-			let buf = UnsafeCell::new([0u8; ARR_SIZE]);
-			let mut dst = unsafe {
-				slice::from_raw_parts_mut((*buf.get()).get_unchecked_mut(0) as *mut u8, ARR_SIZE)
-			};
-			let src = unsafe {
-				slice::from_raw_parts((*buf.get()).get_unchecked(0) as *const u8, 2)
-			};
-
-			let result = inject(dst, src);
-			assert!(result.is_err());
-			let result = result.unwrap_err();
-			assert_eq!(InjectError::SlicesOverlap, result);
-		}
+		case(0..4, 0..4, b"ABCD4567");
+		case(2..6, 1..5, b"01BCDE67");
+		case(4..8, 0..3, b"0123ABC7");
+		case(0..1, 0..8, b"A1234567");
 	}
 
 	#[test]
