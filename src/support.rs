@@ -2,8 +2,10 @@
 //! of it is to help validate that bytes from disc images really do contain
 //! valid values for what they intend.
 
-use core::ops::Deref;
-use std::fmt::{Formatter, Display, Debug, Result as FormatterResult};
+use std::fmt;
+
+use ascii;
+use ascii::AsciiChar;
 
 pub trait CopyFromCommonSliceExt<T> {
 	fn copy_from_common_slice(&mut self, src: &[T]);
@@ -93,106 +95,42 @@ impl PartialEq for BCD {
 	}
 }
 
-/// A `char` wrapper guaranteed to only contain ASCII characters.
-///
-/// This type dereferences to `char`.
-#[derive(PartialEq, Eq, Clone, Hash)]
-pub struct AsciiChar {
-	value: char,
+#[derive(Debug)]
+pub enum AsciiPrintingCharError {
+	AsciiConversionError(ascii::ToAsciiCharError),
+	NonprintingChar,
 }
 
-impl AsciiChar {
-	/// Constructs an `AsciiChar` from a byte.
-	///
-	/// # Errors
-	/// Will fail if the byte is `0x80` or greater.
-	pub fn from_u8(src: u8) -> Result<AsciiChar, ()> {
-		match src {
-			x if x < 0x80 => Ok(AsciiChar {value: x as char}),
-			_ => Err(())
-		}
-	}
-}
-
-impl From<AsciiChar> for u8 {
-	fn from(src: AsciiChar) -> Self {
-		src.value as u8
-	}
-}
-
-// Documentation suppressed to prevent all of char's methods leaking in
-#[doc(hidden)]
-impl Deref for AsciiChar {
-	type Target = char;
-	fn deref(&self) -> &char {
-		&self.value
-	}
-}
-
-/// Prints the `char` if it is a printable character, otherwise
-/// prints a C-style escaped variant.
-impl Display for AsciiChar {
-	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
-		if self.value < '\x20' {
-			write!(f, "'\\x{:02x}'", self.value as u8)
-		} else {
-			write!(f, "{}", self.value)
-		}
-	}
-}
-
-impl Debug for AsciiChar {
-	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
-		write!(f, "<AsciiChar 0x{:2x}/{}", self.value as u8, self)
-	}
-}
-
-/// A `char` wrapper guaranteed to only contain printable ASCII characters.
-///
-/// This type dereferences to `char`.
-#[derive(PartialEq, Eq, Clone, Hash)]
-pub struct AsciiPrintingChar {
-	value: char,
-}
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct AsciiPrintingChar(AsciiChar);
 
 impl AsciiPrintingChar {
-	/// Constructs an `AsciiPrintingCharChar` from a byte.
-	///
-	/// # Errors
-	/// Will fail if the byte does not map to a printing ASCII character.
-	pub fn from_u8(src: u8) -> Result<AsciiPrintingChar, ()> {
-		match src {
-			x if x >= 0x20 && x < 0x7f => Ok(AsciiPrintingChar {value: x as char}),
-			_ => Err(())
+	pub fn from<C: ascii::ToAsciiChar>(src: C)
+	-> Result<AsciiPrintingChar, AsciiPrintingCharError> {
+		let maybe = ascii::ToAsciiChar::to_ascii_char(src)
+			.map_err(AsciiPrintingCharError::AsciiConversionError)?;
+		if maybe.is_control() {
+			Err(AsciiPrintingCharError::NonprintingChar)
+		}
+		else {
+			Ok(AsciiPrintingChar(maybe))
 		}
 	}
-}
 
-impl From<AsciiPrintingChar> for u8 {
-	fn from(src: AsciiPrintingChar) -> Self {
-		src.value as u8
+	pub fn as_byte(&self) -> u8 {
+		self.0.as_byte()
 	}
 }
 
-// Documentation suppressed to prevent all of char's methods leaking in
-#[doc(hidden)]
-impl Deref for AsciiPrintingChar {
-	type Target = char;
-	fn deref(&self) -> &char {
-		&self.value
+impl fmt::Display for AsciiPrintingChar {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		self.0.fmt(f)
 	}
 }
 
-/// Prints the underlying `char` directly.
-impl Display for AsciiPrintingChar {
-	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
-		write!(f, "{}", self.value)
-	}
-}
-
-impl Debug for AsciiPrintingChar {
-	fn fmt(&self, f: &mut Formatter) -> FormatterResult {
-		write!(f, "<AsciiPrintingChar 0x{:2x}/{}>", self.value as u8, self.value)
+impl From<AsciiPrintingChar> for AsciiChar {
+	fn from(src: AsciiPrintingChar) -> AsciiChar {
+		src.0
 	}
 }
 
@@ -308,74 +246,18 @@ mod tests {
 	}
 
 	#[test]
-	fn ascii_char() {
-		let check_success = |input: u8| {
-			let ch = AsciiChar::from_u8(input);
-			assert!(ch.is_ok());
-			let ch = ch.unwrap();
-			assert_eq!(input, ch.value as u8);
-		};
-
-		for i in 0..127 {
-			check_success(i);
-		}
-
-		let check_failure = |input: u8| {
-			let ch = AsciiChar::from_u8(input);
-			assert!(ch.is_err());
-		};
-
-		for i in 128..256 {
-			check_failure(i as u8);
-		}
-	}
-
-	#[test]
 	fn ascii_printing_char() {
-		let check_success = |input: u8| {
-			let ch = AsciiPrintingChar::from_u8(input);
-			assert!(ch.is_ok());
-			let ch = ch.unwrap();
-			assert_eq!(input, ch.value as u8);
-		};
 
 		for i in 32..127 {
-			check_success(i);
+			let ch = super::AsciiPrintingChar::from(i as u8);
+			assert!(ch.is_ok());
+			let ch = ch.unwrap();
+			assert_eq!(i as u8, ch.as_byte());
 		}
-
-		let check_failure = |input: u8| {
-			let ch = AsciiPrintingChar::from_u8(input);
-			assert!(ch.is_err());
-		};
 
 		for i in (0..32).chain(127..256) {
-			check_failure(i as u8);
+			let ch = super::AsciiPrintingChar::from(i as u8);
+			assert!(ch.is_err());
 		}
-	}
-
-	#[test]
-	fn format_ascii_char() {
-		let op = |input: u8, output: &str| {
-			let ch = AsciiChar::from_u8(input).unwrap();
-			let result = format!("{}", ch);
-			assert_eq!(output, result.as_str());
-		};
-
-		op(0x41, "A");
-		op(0x33, "3");
-		op(0x7f, "\x7f");
-		op(0x00, "'\\x00'");
-	}
-
-	#[test]
-	fn format_ascii_printing_char() {
-		let op = |input: u8, output: &str| {
-			let ch = AsciiPrintingChar::from_u8(input).unwrap();
-			let result = format!("{}", ch);
-			assert_eq!(output, result.as_str());
-		};
-
-		op(0x41, "A");
-		op(0x39, "9");
 	}
 }

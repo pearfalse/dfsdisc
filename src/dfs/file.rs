@@ -1,28 +1,60 @@
+use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
-use support::{AsciiPrintingChar};
+use support::*;
 
-use ascii::{AsciiStr,AsciiString};
+use ascii::{AsciiStr, AsciiString};
 
 /// A representation of a file in a DFS disc.
 ///
 /// The identity of a `File` (equality, hashing etc.) is determined by the
 /// file's name, directory, load address and execution address.
-#[derive(Eq)]
+#[derive(PartialEq, Eq)]
 pub struct File {
 	/// The DFS directory that this file lives in.
-	pub dir: AsciiPrintingChar,
+	dir: AsciiPrintingChar,
 	/// The name of the file.
-	pub name: String, // TODO: constrain to 7 chars, either with a new wrapper type or hiding the field
+	name: AsciiString,
 	/// The address in memory where an OS would load this file.
-	pub load_addr: u32,
+	load_addr: u32,
 	/// The address in memory where, upon loading the file, the OS would begin executing.
-	pub exec_addr: u32,
+	exec_addr: u32,
 	/// Whether the file is locked on disc.
-	pub locked: bool,
-	/// The contents of the file.
-	pub file_contents: Vec<u8>,
+	is_locked: bool,
+	/// The content of the file.
+	content: Box<[u8]>,
+}
+
+impl File {
+	pub fn new(dir: AsciiPrintingChar, name: AsciiString, load_addr: u32, exec_addr: u32, is_locked: bool,
+		content: Box<[u8]>) -> File {
+		File {
+			dir: dir,
+			name: name,
+			load_addr: load_addr,
+			exec_addr: exec_addr,
+			is_locked: is_locked,
+			content: content,
+		}
+	}
+
+	pub fn dir(&self) -> AsciiPrintingChar {
+		self.dir
+	}
+
+	pub fn name(&self) -> &AsciiStr {
+		self.name.borrow()
+	}
+
+	pub fn load_addr(&self) -> u32 { self.load_addr }
+	pub fn exec_addr(&self) -> u32 { self.exec_addr }
+	pub fn is_locked(&self) -> bool { self.is_locked }
+	pub fn content(&self) -> &[u8] { &*self.content }
+
+	pub fn lock(&mut self) { self.is_locked = true; }
+	pub fn unlock(&mut self) { self.is_locked = false; }
+
 }
 
 impl Hash for File {
@@ -34,27 +66,11 @@ impl Hash for File {
 	}
 }
 
-impl PartialEq for File {
-	fn eq(&self, other: &Self) -> bool {
-		self.load_addr == other.load_addr &&
-		self.exec_addr == other.exec_addr &&
-		self.dir == other.dir &&
-		self.name == other.name
-	}
-
-	fn ne(&self, other: &Self) -> bool {
-		self.load_addr != other.load_addr ||
-		self.exec_addr != other.exec_addr ||
-		self.dir != other.dir ||
-		self.name != other.name
-	}
-}
-
 impl fmt::Display for File {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "{}.{} (load 0x{:x}, exec 0x{:x}, size 0x{:x})",
-			*self.dir, self.name,
-			self.load_addr, self.exec_addr, self.file_contents.len()
+			self.dir, self.name,
+			self.load_addr, self.exec_addr, self.content().len()
 		)
 	}
 }
@@ -64,7 +80,7 @@ impl fmt::Debug for File {
 		write!(f, "<DFSFile dir={:?} name={:?} \
 			load=0x{:x} exec=0x{:x} size=0x{:x}>",
 			self.dir, self.name, self.load_addr, self.exec_addr,
-			self.file_contents.len()
+			self.content().len()
 		)
 	}
 }

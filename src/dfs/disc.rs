@@ -1,13 +1,14 @@
-use core::convert::From;
-use std::collections::{HashSet, hash_set};
+use std::convert::From;
+use std::collections::HashSet;
 
 use dfs::*;
 use support::*;
-use ascii::{AsciiStr,AsciiString};
+use ascii::AsciiString;
 
 /// What a DFS-supporting OS would do with a [`Disc`](./struct.Disc.html)
 /// found in the drive during a Shift-BREAK.
 #[derive(Debug, PartialEq)]
+#[repr(u8)]
 pub enum BootOption {
 	None,
 	Load,
@@ -72,7 +73,7 @@ impl Disc {
 	/// decode to a valid DFS disc. The attached `usize` is an offset into
 	/// `src` where the offending data was found.
 	/// * [`DFSError::DuplicateFileName`][DFSError]: Two files were found
-	/// with the same name and directory entry. Whether these two files
+	/// with the same name and directory entry. Whether these two files point
 	/// to the same on-disc data is not checked.
 	///
 	/// [DFSError]: ./enum.DFSError.html
@@ -101,7 +102,7 @@ impl Disc {
 	/// };
 	///
 	/// println!("Files in {}:", disc.name);
-	/// for file in &disc {
+	/// for file in disc.files() {
 	/// 	println!("--> {}", file);
 	/// }
 	/// ```
@@ -154,15 +155,15 @@ impl Disc {
 		};
 
 		let boot_option = (src[0x106] >> 4) & 3;
-		let boot_option = try!(BootOption::try_from(boot_option));
+		let boot_option = BootOption::try_from(boot_option)?;
 
 		let disc_cycle = {
 			const OFFSET : usize = 0x104;
-			try!(BCD::from_hex(src[OFFSET])
-				.map_err(|_| DFSError::InvalidDiscData(OFFSET)))
+			BCD::from_hex(src[OFFSET])
+				.map_err(|_| DFSError::InvalidDiscData(OFFSET))?
 		};
 
-		let files = try!(populate_files(src));
+		let files = populate_files(src)?;
 
 		let disc = Disc {
 			name: disc_name,
@@ -172,6 +173,20 @@ impl Disc {
 		};
 
 		Ok(disc)
+	}
+
+	pub fn files<'a>(&'a self) -> Files {
+		Files(self.files.iter())
+	}
+}
+
+pub struct Files<'a>(::std::collections::hash_set::Iter<'a, File>);
+
+impl<'a> Iterator for Files<'a> {
+	type Item = &'a File;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.0.next()
 	}
 }
 
@@ -191,27 +206,28 @@ fn populate_files(src: &[u8])
 	for i in 0..num_catalogue_entries {
 		// First half: filename, directory name, locked bit
 		let offset1 = ((i*8) as usize) + 0x008;
+		// Second half: various addresses
 		let offset2 = ((i*8) as usize) + 0x108;
-		let name_buf = &src[offset1 .. (offset1 + 7)];
 
 		// Set dir, locked
-		let dir = src[offset1 + 7];
-		let locked = dir > 0x7f;
-		let dir = AsciiPrintingChar::from_u8(dir & 0x7f).unwrap();
+		let (dir, locked) = {
+			let offset = offset1 + 7;
+			let raw = src[offset];
 
-		// Guard against stray high bits
-		if let Some(pos) = name_buf.iter().position(|&b| b < 0x20 || b >= 0x80) {
-			return Err(DFSError::InvalidDiscData(offset1 + pos));
-		}
+			let dir = AsciiPrintingChar::from(raw & 0x7f)
+				.map_err(|_| DFSError::InvalidDiscData(offset))?;
 
-		// Set file name as owned string
-		let name_len = name_buf.iter().take_while(|&&b| b != 0x20).count();
-		let mut name_vec = Vec::with_capacity(name_len);
-		for ch in name_buf.iter().take(name_len) {
-			name_vec.push(ch & 0x7f);
-		}
-		// All bytes in `name` guaranteed to be 0x020–0x7f
-		let name = unsafe { String::from_utf8_unchecked(name_vec) };
+			(dir, raw > 0x7f)
+		};
+
+		let name = {
+			let name_buf = &src[offset1 .. (offset1 + 7)];
+			let name_len = name_buf.iter().take_while(|&&b| b > b' ').count();
+			AsciiString::from_ascii(&name_buf[..name_len]).map_err(|e| {
+				let str_pos = e.ascii_error().valid_up_to();
+				DFSError::InvalidDiscData(offset1 + str_pos)
+			})?
+		};
 
 		let busy_byte = src[offset2 + 6] as u32;
 
@@ -237,20 +253,13 @@ fn populate_files(src: &[u8])
 			return Err(DFSError::InvalidDiscData(offset2 + 6));
 		}
 
-		let file_contents = &src[(data_start as usize)..(data_end as usize)];
-
-		let file = File {
-			dir: dir.clone(),
-			name: name,
-			load_addr: load_addr,
-			exec_addr: exec_addr,
-			locked: locked,
-			file_contents: From::from(file_contents)
-		};
+		let file_contents = (&src[(data_start as usize)..(data_end as usize)])
+			.to_vec().into_boxed_slice();
+		let file = File::new(dir, name, load_addr, exec_addr, locked, file_contents);
 
 		if files.contains(&file) {
 			return Err(DFSError::DuplicateFileName(
-				format!("{}.{}", *dir, &file.name)
+				format!("{}.{}", dir, file.name())
 				));
 		}
 
@@ -258,15 +267,6 @@ fn populate_files(src: &[u8])
 	}
 
 	Ok(files)
-}
-
-impl<'a> IntoIterator for &'a Disc {
-	type Item = &'a File;
-	type IntoIter = hash_set::Iter<'a, File>;
-
-	fn into_iter(self) -> Self::IntoIter {
-		self.files.iter()
-	}
 }
 
 #[cfg(test)]
@@ -302,30 +302,30 @@ mod test {
 		// Check cycle count
 		assert_eq!(BCD::from_hex(0x11).unwrap(), target.cycle);
 
-		for f in target.into_iter() {
+		for f in target.files() {
 			println!("Found file {:?}", f);
 		}
 
 		// Start picking files apart
-		let check = |dir: char, name: &str, load: u32, exec: u32, len: usize, byte: u8| {
+		let check = |dir: u8, name: &str, load: u32, exec: u32, len: usize, byte: u8| {
 			println!("Checking {}.{}...", dir, name);
-			let file = target.into_iter().find(|&f| {
-					*f.dir == dir
+			let file = target.files().find(|&f| {
+					f.dir().as_byte() == dir
 				}).unwrap_or_else(|| panic!("No file found in dir '{}'", dir));
-			assert_eq!(name, file.name);
-			assert_eq!(load, file.load_addr);
-			assert_eq!(exec, file.exec_addr);
-			assert_eq!(len, file.file_contents.len());
-			assert!(file.file_contents.iter().all(|&n| n == byte));
+			assert_eq!(name, file.name());
+			assert_eq!(load, file.load_addr());
+			assert_eq!(exec, file.exec_addr());
+			assert_eq!(len, file.content().len());
+			assert!(file.content().iter().all(|&n| n == byte));
 		};
 
-		check('$', "Small" , 0x1234, 0x5678, 12, 0x31);
-		check('A', "Single", 0x8765, 0x4321, 256, 0x32);
-		check('B', "Double", 0x0111, 0x0eee, 257, 0x33);
+		check(b'$', "Small" , 0x1234, 0x5678, 12, 0x31);
+		check(b'A', "Single", 0x8765, 0x4321, 256, 0x32);
+		check(b'B', "Double", 0x0111, 0x0eee, 257, 0x33);
 
-		assert_eq!(None, target.into_iter().find(|&f| {
-			*f.dir == 'C'
-		}));
+		assert_eq!(target.files().find(|&f| {
+			f.dir().as_byte() == b'C'
+		}), None);
 	}
 
 	#[test]
