@@ -63,9 +63,26 @@ impl<'d> Disc<'d> {
 	}
 
 	pub fn name(&self) -> &AsciiStr { self.name.as_ascii_str() }
+	pub fn set_name(&mut self, new_name: &AsciiPrintingStr) -> Result<(), DFSError> {
+		self.name = DiscName::try_from(new_name.as_ascii_str().as_slice())
+			.map_err(|e| DFSError::InputTooLarge(e.position()))?;
+		Ok(())
+	}
 
 	pub fn boot_option(&self) -> BootOption { self.boot_option }
 	pub fn set_boot_option(&mut self, new: BootOption) { self.boot_option = new; }
+
+	/// Creates a new, empty DFS disc.
+	pub fn new() -> Disc<'d> {
+		Disc {
+			_data: PhantomData,
+
+			name: DiscName::empty(),
+			boot_option: BootOption::None,
+			cycle: BCD::C00,
+			files: HashSet::new(),
+		}
+	}
 
 	/// Decodes a slice of bytes from a disc image into a `Disc`.
 	///
@@ -130,7 +147,7 @@ impl<'d> Disc<'d> {
 			};
 
 			let name_len = buf.iter().take_while(|&&b| b > 32u8).count();
-			DiscName::try_from_bytes(buf[..name_len].iter().copied()).map_err(|e| {
+			DiscName::try_from(&buf[..name_len]).map_err(|e| {
 				let str_pos = e.position();
 				// Decode index position back to byte offset
 				DFSError::InvalidDiscData(if str_pos >= 8 {
@@ -225,7 +242,7 @@ fn populate_files(src: &[u8])
 		let name = {
 			let name_buf = &src[offset1 .. (offset1 + 7)];
 			let name_len = name_buf.iter().take_while(|&&b| b > b' ').count();
-			FileName::try_from_bytes(name_buf[..name_len].iter().copied()).map_err(|e| {
+			FileName::try_from(&name_buf[..name_len]).map_err(|e| {
 				let str_pos = e.position();
 				DFSError::InvalidDiscData(offset1 + str_pos)
 			})?

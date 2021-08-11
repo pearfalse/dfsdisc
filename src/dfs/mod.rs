@@ -13,6 +13,7 @@ pub const MAX_DISC_SIZE: usize = 524288;
 pub enum DFSError {
 	InvalidValue,
 	InputTooSmall(usize),
+	InputTooLarge(usize),
 	InvalidDiscData(usize),
 	DuplicateFileName(String),
 }

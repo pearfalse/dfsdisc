@@ -184,14 +184,15 @@ impl From<AsciiPrintingChar> for AsciiChar {
 	}
 }
 
+pub type AsciiPrintingStr = [AsciiPrintingChar];
 
 pub trait AsciiPrintingSlice {
 	fn as_ascii_str(&self) -> &AsciiStr;
 }
 
-impl AsciiPrintingSlice for [AsciiPrintingChar] {
+impl AsciiPrintingSlice for AsciiPrintingStr {
 	fn as_ascii_str(&self) -> &AsciiStr {
-		unsafe { &*(self as *const [AsciiPrintingChar] as *const AsciiStr) }
+		unsafe { &*(self as *const AsciiPrintingStr as *const AsciiStr) }
 	}
 }
 
@@ -209,14 +210,19 @@ pub struct AsciiName<const N: usize> {
 }
 
 impl<const N: usize> AsciiName<N> {
-	pub fn try_from_bytes(src: impl IntoIterator<Item = u8>) -> Result<Self, AsciiNameError> {
+	pub fn try_from<C>(src: &[C]) -> Result<Self, AsciiNameError>
+	where C: ascii::ToAsciiChar + Copy {
 		let mut store = ArrayVec::new();
-		for (i, byte) in src.into_iter().enumerate() {
-			let apc = AsciiPrintingChar::from(byte).map_err(move |_| AsciiNameError(i))?;
-			store.try_push(apc).map_err(move |_| AsciiNameError(i))?;
+		for (i, byte) in src.iter().enumerate() {
+			let apc = AsciiPrintingChar::from(*byte).map_err(|_| AsciiNameError(i))?;
+			store.try_push(apc).map_err(|_| AsciiNameError(i))?;
 		}
 
 		Ok(Self { store })
+	}
+
+	pub fn empty() -> AsciiName<N> {
+		Self { store: ArrayVec::new() }
 	}
 
 	pub fn as_ascii_str(&self) -> &AsciiStr {
