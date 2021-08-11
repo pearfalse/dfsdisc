@@ -107,9 +107,6 @@ impl BCD {
 		Self { value: src }
 	}
 
-	#[deprecated(note = "old name")]
-	pub fn from_u8(src: u8) -> Result<BCD, BCDError> { Self::try_new(src) }
-
 	/// Converts a `BCD` back into its decimal value.
 	pub fn into_u8(self) -> u8 {
 		(self.value >> 4) + (self.value & 15)
@@ -233,7 +230,7 @@ mod tests {
 			BCD {value: 0x99u8},
 		];
 		for (input, output) in inputs.iter().copied().zip(outputs.iter().copied()) {
-			assert_eq!(Ok(output), BCD::from_u8(input));
+			assert_eq!(Ok(output), BCD::try_new(input));
 		}
 	}
 
@@ -242,7 +239,7 @@ mod tests {
 		let inputs = [100u8, 255u8];
 
 		for input in inputs.iter().copied() {
-			assert_eq!(Err(BCDError::IntValueTooLarge), BCD::from_u8(input));
+			assert_eq!(Err(BCDError::IntValueTooLarge), BCD::try_new(input));
 		}
 	}
 

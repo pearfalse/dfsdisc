@@ -41,12 +41,8 @@ type HeaderSectors = [u8; 0x200];
 pub struct Disc {
 	pub name: AsciiString,
 
-	#[deprecated(note = "will be made private")]
-	pub boot_option: BootOption,
-
-	#[deprecated(note = "will be made private")]
-	pub cycle: BCD,
-
+	boot_option: BootOption,
+	cycle: BCD,
 	files: HashSet<File>,
 }
 
@@ -56,7 +52,7 @@ impl Disc {
 	pub fn cycle(&self) -> BCD { self.cycle }
 	pub fn increment_cycle(&mut self) {
 		let next_cycle = self.cycle.into_u8().wrapping_add(1);
-		self.cycle = match BCD::from_u8(next_cycle) {
+		self.cycle = match BCD::try_new(next_cycle) {
 			Ok(bcd) => bcd,
 			Err(_) => BCD::C00
 		};
@@ -167,7 +163,7 @@ impl Disc {
 		let disc = Disc {
 			name: disc_name,
 			files: files,
-			boot_option: boot_option,
+			boot_option,
 			cycle: disc_cycle,
 		};
 
