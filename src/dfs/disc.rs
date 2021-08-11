@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
-use ascii::AsciiString;
+use ascii::AsciiStr;
 
 use crate::dfs::*;
 use crate::support::*;
@@ -44,9 +44,7 @@ pub type DiscName = AsciiName<12>;
 pub struct Disc<'d> {
 	_data: PhantomData<&'d [u8]>,
 
-	#[deprecated(note = "field will go private")]
-	pub name: DiscName,
-
+	name: DiscName,
 	boot_option: BootOption,
 	cycle: BCD,
 	files: HashSet<File<'d>>,
@@ -63,6 +61,8 @@ impl<'d> Disc<'d> {
 			Err(_) => BCD::C00
 		};
 	}
+
+	pub fn name(&self) -> &AsciiStr { self.name.as_ascii_str() }
 
 	pub fn boot_option(&self) -> BootOption { self.boot_option }
 	pub fn set_boot_option(&mut self, new: BootOption) { self.boot_option = new; }
@@ -108,7 +108,7 @@ impl<'d> Disc<'d> {
 	/// 	}
 	/// };
 	///
-	/// println!("Files in {}:", disc.name);
+	/// println!("Files in {}:", disc.name());
 	/// for file in disc.files() {
 	/// 	println!("--> {}", file);
 	/// }
@@ -338,7 +338,7 @@ mod test {
 		assert!(target.is_ok(), "returned error {:?}", target.unwrap_err());
 
 		let target = target.unwrap();
-		assert_eq!(test_name, target.name.as_ascii_str().as_bytes());
+		assert_eq!(test_name, target.name().as_bytes());
 	}
 
 	#[test]
@@ -367,7 +367,7 @@ mod test {
 		let disc_bytes = disc_buf_with_name(b"DiscName \xff\xff\xff");
 		let target = dfs::Disc::from_bytes(&disc_bytes);
 		assert!(target.is_ok());
-		assert_eq!(target.unwrap().name.as_ascii_str(), disc_name.as_str());
+		assert_eq!(target.unwrap().name(), disc_name.as_str());
 
 	}
 

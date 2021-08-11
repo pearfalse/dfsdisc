@@ -62,7 +62,7 @@ fn sc_probe(image_path: &str) -> Result<(), ScProbeError> {
 	let disc = dfs::Disc::from_bytes(&data)
 		.map_err(ScProbeError::BadImage)?;
 
-	println!("Opened disc {}", disc.name);
+	println!("Opened disc {}", disc.name());
 	println!("Files:");
 	for file in disc.files() {
 		println!("{}", file);
