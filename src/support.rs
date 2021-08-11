@@ -162,6 +162,12 @@ impl AsciiPrintingChar {
 	pub fn as_byte(&self) -> u8 {
 		self.0.as_byte()
 	}
+
+	pub fn as_ascii_char(self) -> AsciiChar { self.0 }
+
+	pub fn as_ascii_str(&self) -> &AsciiStr {
+		std::slice::from_ref(self).as_ascii_str()
+	}
 }
 
 impl std::ops::Deref for AsciiPrintingChar {

@@ -14,5 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 ascii = ">= 1.0"
+xml-rs = "0.8.4"
 gumdrop = "0.8"
 arrayvec = "0.7.1"

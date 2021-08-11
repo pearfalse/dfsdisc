@@ -18,6 +18,17 @@ pub enum BootOption {
 	Exec = 3,
 }
 
+impl BootOption {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::None => "none",
+			Self::Load => "load",
+			Self::Run  => "run" ,
+			Self::Exec => "exec",
+		}
+	}
+}
+
 impl From<BootOption> for u8 {
 	fn from(src: BootOption) -> u8 { src as u8 }
 }

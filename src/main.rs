@@ -130,11 +130,23 @@ fn sc_probe(image_path: &OsStr) -> Result<(), CliError> {
 }
 
 fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
+	use std::borrow::Cow;
 	use std::fs;
 	use std::io::Write;
 	use ascii::{AsciiChar,AsciiStr};
+	use xml::{
+		writer::events::XmlEvent,
+		name::Name as XmlName,
+		attribute::Attribute,
+		namespace::Namespace,
+	};
 
 	let separator = AsciiChar::from_ascii(std::path::MAIN_SEPARATOR).unwrap();
+	let root_namespace = Namespace({
+		let mut map = std::collections::BTreeMap::new();
+		map.insert(String::from(xml::namespace::NS_NO_PREFIX), String::from("http://pearfalse.com/schemas/2021/dfs-manifest"));
+		map
+	});
 
 	fs::DirBuilder::new()
 		.recursive(true)
@@ -151,11 +163,7 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 		= disc.files().map(|f| f.dir()).collect();
 
 	for dir in dirs {
-		let as_path = [dir.as_byte()];
-		std::fs::create_dir(unsafe {
-			// SAFETY: array is always populated with an ASCII subset byte
-			&*(&as_path[..] as *const [u8] as *const str)
-		})?;
+		std::fs::create_dir_all(dir.as_ascii_str().as_str())?;
 	}
 
 	let mut file_path_buf = arrayvec::ArrayVec::<AsciiChar, 9>::new(); // 9 == 7 of file + dir + SEPARATOR
@@ -169,6 +177,82 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 			.and_then(|mut f| f.write_all(file.content()))
 			.map_err(CliError::Io)?;
 	}
+
+	// create manifest file
+	let mut manifest = fs::File::create("manifest.xml")
+		.map(|f| xml::writer::EventWriter::new_with_config(f, xml::writer::EmitterConfig {
+			indent_string: Cow::Borrowed("\t"),
+			perform_indent: true,
+			.. Default::default()
+		})).map_err(CliError::Io)?;
+
+	// begin manifest
+	match (|| {
+		manifest.write(XmlEvent::StartDocument {
+			version: xml::common::XmlVersion::Version11,
+			encoding: Some("UTF-8"),
+			standalone: None,
+		})?;
+
+		// <dfsdisc>
+		let attr_cycle = format!("{}", disc.cycle().into_u8());
+		let start_attrs = [
+			// hardcoding to 100KiB 40T DFS for now. TODO fix this, obviously
+			Attribute::new(XmlName::local("sides"), "1"),
+			Attribute::new(XmlName::local("tracks"), "40"),
+			Attribute::new(XmlName::local("cycle"), &attr_cycle),
+			Attribute::new(XmlName::local("boot"), disc.boot_option().as_str()),
+		];
+		manifest.write(XmlEvent::StartElement {
+			name: XmlName::local("dfsdisc"),
+			attributes: Cow::Borrowed(&start_attrs[..]),
+			namespace: Cow::Owned(root_namespace),
+		})?;
+
+		let ns_empty = xml::namespace::Namespace::empty();
+		for file in disc.files() {
+			let element_name = match file.exec_addr() {
+				0x801f | 0x8023 => "basic",
+				// 0xffff if file.content().is_text() => "text", TODO smart text handling
+				n if n >= 0x900 && n < 0x8000 => "code",
+				_ => "data"
+			};
+
+			let dir1 = [file.dir().as_ascii_char()];
+			let load_str = format!("{:04x}", file.load_addr());
+			let exec_str = format!("{:04x}", file.exec_addr());
+
+			file_path_buf.clear();
+			file_path_buf.push(dir1[0]);
+			file_path_buf.push(separator);
+			file_path_buf.extend(file.name().as_slice().iter().copied());
+
+			let file_attrs = [
+				Attribute::new(XmlName::local("name"), file.name().as_str()),
+				Attribute::new(XmlName::local("dir"), <&AsciiStr>::from(&dir1[..]).as_str()),
+				Attribute::new(XmlName::local("src"), <&AsciiStr>::from(&*file_path_buf).as_str()),
+				Attribute::new(XmlName::local("load"), &*load_str),
+				Attribute::new(XmlName::local("exec"), &*exec_str),
+			];
+
+			// <[code|data|text]/>
+			manifest.write(XmlEvent::StartElement {
+				name: XmlName::local(element_name),
+				attributes: Cow::Borrowed(&file_attrs[..]),
+				namespace: Cow::Borrowed(&ns_empty),
+			})?;
+			manifest.write(XmlEvent::end_element())?;
+		}
+
+		// </dfsdisc>
+		manifest.write(XmlEvent::end_element())?;
+
+		Ok(())
+	})() {
+		Ok(()) => {},
+		Err(xml::writer::Error::Io(e)) => return Err(CliError::Io(e)),
+		Err(_e) => panic!("Unexpected XML error: {:?}", _e),
+	};
 
 	Ok(())
 }
