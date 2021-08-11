@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
@@ -5,17 +6,13 @@ use crate::support::*;
 
 use ascii::AsciiStr;
 
-pub type FileName = AsciiName<7>;
-
 /// A representation of a file in a DFS disc.
 ///
 /// The identity of a `File` (equality, hashing etc.) is determined by the
 /// file's name, directory, load address and execution address.
 #[derive(PartialEq, Eq)]
 pub struct File<'d> {
-	/// The DFS directory that this file lives in.
-	dir: AsciiPrintingChar,
-	/// The name of the file.
+	/// The name of the file, including directory.
 	name: FileName,
 	/// The address in memory where an OS would load this file.
 	load_addr: u32,
@@ -28,10 +25,9 @@ pub struct File<'d> {
 }
 
 impl<'d> File<'d> {
-	pub fn new(dir: AsciiPrintingChar, name: FileName, load_addr: u32, exec_addr: u32, is_locked: bool,
+	pub fn new(name: FileName, load_addr: u32, exec_addr: u32, is_locked: bool,
 		content: &'d [u8]) -> File<'d> {
 		File {
-			dir,
 			name,
 			load_addr,
 			exec_addr,
@@ -41,11 +37,11 @@ impl<'d> File<'d> {
 	}
 
 	pub fn dir(&self) -> AsciiPrintingChar {
-		self.dir
+		self.name.dir
 	}
 
 	pub fn name(&self) -> &AsciiStr {
-		(&*self.name).as_ascii_str()
+		self.name.name.as_ascii_str()
 	}
 
 	pub fn load_addr(&self) -> u32 { self.load_addr }
@@ -58,17 +54,10 @@ impl<'d> File<'d> {
 
 }
 
-impl<'d> Hash for File<'d> {
-	fn hash<H: Hasher>(&self, state: &mut H) {
-		self.dir.hash(state);
-		self.name.as_ascii_str().hash(state);
-	}
-}
-
 impl<'d> fmt::Display for File<'d> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "{}.{} (load 0x{:x}, exec 0x{:x}, size 0x{:x})",
-			self.dir, self.name,
+			self.name.dir, self.name.name,
 			self.load_addr, self.exec_addr, self.content().len()
 		)
 	}
@@ -78,8 +67,39 @@ impl<'d> fmt::Debug for File<'d> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "<DFSFile dir={:?} name={:?} \
 			load=0x{:x} exec=0x{:x} size=0x{:x}>",
-			self.dir, self.name, self.load_addr, self.exec_addr,
+			self.name.dir, self.name.name, self.load_addr, self.exec_addr,
 			self.content().len()
 		)
+	}
+}
+
+impl<'d> Hash for File<'d> {
+	fn hash<H: Hasher>(&self, state: &mut H) { self.name.hash(state); }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FileName {
+	name: AsciiName<7>,
+	dir: AsciiPrintingChar,
+}
+
+impl<'d> Borrow<FileName> for File<'d> {
+	fn borrow(&self) -> &FileName { &self.name }
+}
+
+impl FileName {
+	pub(crate) fn new(name: AsciiName<7>, dir: AsciiPrintingChar) -> Self {
+		Self { name, dir }
+	}
+
+	pub(crate) fn try_from<C: ascii::ToAsciiChar + Copy>(name: &[C], dir: AsciiPrintingChar) -> Result<Self, AsciiNameError> {
+		Ok(Self { name: AsciiName::try_from(name)?, dir })
+	}
+}
+
+impl Hash for FileName {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.dir.hash(state);
+		self.name.as_ascii_str().hash(state);
 	}
 }
