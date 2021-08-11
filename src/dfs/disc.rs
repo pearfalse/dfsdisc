@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use std::collections::HashSet;
+use std::marker::PhantomData;
 
 use dfs::*;
 use support::*;
@@ -38,15 +39,16 @@ type HeaderSectors = [u8; 0x200];
 
 /// Representation of a single-sided DFS disc.
 #[derive(Debug)]
-pub struct Disc {
+pub struct Disc<'d> {
+	_data: PhantomData<&'d [u8]>,
 	pub name: AsciiString,
 
 	boot_option: BootOption,
 	cycle: BCD,
-	files: HashSet<File>,
+	files: HashSet<File<'d>>,
 }
 
-impl Disc {
+impl<'d> Disc<'d> {
 
 	// Basic accessors
 	pub fn cycle(&self) -> BCD { self.cycle }
@@ -107,7 +109,7 @@ impl Disc {
 	/// 	println!("--> {}", file);
 	/// }
 	/// ```
-	pub fn from_bytes(src: &[u8]) -> Result<Disc, DFSError> {
+	pub fn from_bytes(src: &'d [u8]) -> Result<Disc<'d>, DFSError> {
 		let header_sectors: &HeaderSectors = src.as_min_slice().map_err(|_| DFSError::InputTooSmall(SECTOR_SIZE * 2))?;
 
 		let disc_name: AsciiString = {
@@ -161,8 +163,9 @@ impl Disc {
 		let files = populate_files(src)?;
 
 		let disc = Disc {
+			_data: PhantomData,
 			name: disc_name,
-			files: files,
+			files,
 			boot_option,
 			cycle: disc_cycle,
 		};
@@ -175,10 +178,10 @@ impl Disc {
 	}
 }
 
-pub struct Files<'a>(::std::collections::hash_set::Iter<'a, File>);
+pub struct Files<'a, 'd>(::std::collections::hash_set::Iter<'a, File<'d>>);
 
-impl<'a> Iterator for Files<'a> {
-	type Item = &'a File;
+impl<'a, 'd> Iterator for Files<'a, 'd> {
+	type Item = &'a File<'d>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.0.next()
@@ -248,8 +251,7 @@ fn populate_files(src: &[u8])
 			return Err(DFSError::InvalidDiscData(offset2 + 6));
 		}
 
-		let file_contents = (&src[(data_start as usize)..(data_end as usize)])
-			.to_vec().into_boxed_slice();
+		let file_contents = &src[(data_start as usize)..(data_end as usize)];
 		let file = File::new(dir, name, load_addr, exec_addr, locked, file_contents);
 
 		if files.contains(&file) {
