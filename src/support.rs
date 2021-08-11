@@ -41,7 +41,7 @@ pub struct BCD {
 /// Reasons why constructing a [`BCD`] may fail.
 ///
 /// [`BCD`]: struct.BCD.html
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum BCDError {
 	/// The given integer value was over 99.
 	IntValueTooLarge,
@@ -166,11 +166,8 @@ mod tests {
 			BCD {value: 0x25u8},
 			BCD {value: 0x99u8},
 		];
-		for (input, output) in inputs.iter().zip(outputs.iter()) {
-			let result = BCD::from_u8(*input);
-			assert!(result.is_ok());
-			let result = result.unwrap();
-			assert_eq!(result, *output);
+		for (input, output) in inputs.iter().copied().zip(outputs.iter().copied()) {
+			assert_eq!(Ok(output), BCD::from_u8(input));
 		}
 	}
 
@@ -178,21 +175,14 @@ mod tests {
 	fn bcd_from_u8_failure() {
 		let inputs = [100u8, 255u8];
 
-		for input in inputs.iter() {
-			let result = BCD::from_u8(*input);
-			assert!(result.is_err());
-			assert_eq!(BCDError::IntValueTooLarge, result.unwrap_err());
+		for input in inputs.iter().copied() {
+			assert_eq!(Err(BCDError::IntValueTooLarge), BCD::from_u8(input));
 		}
 	}
 
 	#[test]
 	fn bcd_from_hex_success() {
-		let op = |input, output| {
-			let result = BCD::from_hex(input);
-			assert!(result.is_ok());
-			let result = result.unwrap();
-			assert_eq!(result.value, output);
-		};
+		let op = |input, output| assert_eq!(Ok(output), BCD::from_hex(input).map(|bcd| bcd.value));
 
 		op(0x58u8, 0x58);
 		op(0x09u8, 0x09);
@@ -201,11 +191,7 @@ mod tests {
 
 	#[test]
 	fn bcd_from_hex_failure() {
-		let op = |input| {
-			let result = BCD::from_hex(input);
-			assert!(result.is_err());
-			assert_eq!(BCDError::InvalidHexValue, result.unwrap_err());
-		};
+		let op = |input| assert_eq!(Err(BCDError::InvalidHexValue), BCD::from_hex(input));
 
 		op(0x0a);
 		op(0xa0);
@@ -214,11 +200,7 @@ mod tests {
 
 	#[test]
 	fn u16_from_le_success() {
-		let op = |input: [u8; 2], output: u16| {
-			let result = u16_from_le(&input);
-
-			assert_eq!(output, result);
-		};
+		let op = |input: [u8; 2], output: u16| assert_eq!(output, u16_from_le(&input));
 
 		op([0, 0], 0);
 		op([255, 255], 65535);

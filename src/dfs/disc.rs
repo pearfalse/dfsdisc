@@ -1,4 +1,4 @@
-use std::convert::From;
+use std::convert::TryFrom;
 use std::collections::HashSet;
 
 use dfs::*;
@@ -10,33 +10,20 @@ use ascii::AsciiString;
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum BootOption {
-	None,
-	Load,
-	Run,
-	Exec
+	None = 0,
+	Load = 1,
+	Run = 2,
+	Exec = 3,
 }
 
 impl From<BootOption> for u8 {
-	fn from(src : BootOption) -> u8 {
-		match src {
-			BootOption::None => {0u8},
-			BootOption::Load => {1u8},
-			BootOption::Run  => {2u8},
-			BootOption::Exec => {3u8},
-		}
-	}
+	fn from(src: BootOption) -> u8 { src as u8 }
 }
 
-impl BootOption {
-	/// Attempts to parse a `BootOption` from its `*OPT 4` value. This
-	/// function mimics the interface of the (currently unstable)
-	/// [`TryFrom`](https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html)
-	/// trait.
-	///
-	/// # Errors
-	/// * [`DFSError::InvalidValue`](./enum.DFSError.html): The given byte
-	/// would not convert to a `BootOption`.
-	fn try_from(src : u8) -> Result<BootOption, DFSError> {
+impl TryFrom<u8> for BootOption {
+	type Error = DFSError;
+
+	fn try_from(src: u8) -> Result<BootOption, DFSError> {
 		match src {
 			0u8 => Ok(BootOption::None),
 			1u8 => Ok(BootOption::Load),
@@ -114,14 +101,12 @@ impl Disc {
 		}
 
 		let disc_name: AsciiString = {
-			let buf = unsafe {
-				use core::mem;
-
+			let buf = {
 				// 12 bytes of u8
 				// First 8 come from buf[0x000..0x008]
 				// Second 4 come from buf[0x100..0x104]
 				// We already know the source is big enough
-				let mut b: [u8; 12] = mem::uninitialized();
+				let mut b: [u8; 12] = [0; 12];
 				b[..8].copy_from_slice(&src[0x000..0x008]);
 				b[8..].copy_from_slice(&src[0x100..0x104]);
 
@@ -296,7 +281,7 @@ mod test {
 		src[0x400..0x501].copy_from_slice(&[0x33u8; 257]);
 
 		let target = dfs::Disc::from_bytes(&src);
-		assert!(target.is_ok(), format!("{:?}", target.unwrap_err()));
+		assert!(target.is_ok(), "{:?}", target.unwrap_err());
 		let target = target.unwrap();
 
 		// Check cycle count
@@ -334,7 +319,7 @@ mod test {
 		let buf = disc_buf_with_name(test_name);
 
 		let target = dfs::Disc::from_bytes(&buf);
-		assert!(target.is_ok(), format!("returned error {:?}", target.unwrap_err()));
+		assert!(target.is_ok(), "returned error {:?}", target.unwrap_err());
 
 		let target = target.unwrap();
 		assert_eq!(test_name, target.name.as_bytes());
