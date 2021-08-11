@@ -1,36 +1,68 @@
-extern crate dfsdisc;
 use dfsdisc::dfs;
-
-#[macro_use]
-extern crate clap;
-use clap::{App, Arg, SubCommand};
 
 use std::io;
 use std::io::Read;
+use std::ffi::{OsStr,OsString};
 use std::fs::File;
 
+use gumdrop::Options;
+
+#[derive(Debug, Options)]
+struct CliArgs {
+	#[options(help = "print this")]
+	help: bool,
+
+	#[options(command)]
+	command: Option<Subcommand>,
+}
+
+#[derive(Debug, Options)]
+enum Subcommand {
+	Probe(ScProbe),
+	Build(ScBuild),
+	Unpack(ScUnpack),
+}
+
+#[derive(Debug, Options)]
+struct ScProbe {
+	#[options(free)]
+	image_file: OsString,
+}
+
+#[derive(Debug, Options)]
+struct ScBuild {
+	#[options(short = "x", long = "manifest")]
+	manifest: OsString,
+
+	#[options(free)]
+	output_file: OsString,
+}
+
+#[derive(Debug, Options)]
+struct ScUnpack {
+	#[options(short = "x", long = "manifest")]
+	manifest: OsString,
+
+	#[options(free)]
+	image_file: OsString,
+}
+
 fn main() {
+	let args = CliArgs::parse_args_default_or_exit();
+	let r = match args.command {
+		Some(Subcommand::Probe(ref probe)) => sc_probe(&*probe.image_file).map_err(Box::new),
+		Some(Subcommand::Build(_) | Subcommand::Unpack(_)) => {
+			eprintln!("not implemented, sorry");
+			Ok(())
+		},
+		None => {
+			eprintln!("No command specified; run with '-h' or '--help' for guidance");
+			std::process::exit(1);
+		}
+	};
 
-	let args = App::new(crate_name!())
-		.about("Perform operations with Acorn DFS disc images")
-		.version(crate_version!())
-		.author(crate_authors!())
-		.subcommand(SubCommand::with_name("probe")
-			.about("Interactively probes a disc image")
-			.arg(Arg::with_name("image-file")
-				.help("The disc image to load (use '-' for stdin)")
-				.required(true)
-				.index(1)
-			)
-		)
-		.get_matches();
-
-	if let Some(subargs) = args.subcommand_matches("probe") {
-		let disc_image = subargs.value_of("image-file").unwrap();
-		match sc_probe(disc_image) {
-			Ok(()) => { },
-			Err(x) => println!("Error: {:?}", x)
-		};
+	if let Err(e) = r {
+		eprintln!("{:?}", e);
 	}
 }
 
@@ -41,7 +73,7 @@ enum ScProbeError {
 	BadImage(dfs::DFSError),
 }
 
-fn sc_probe(image_path: &str) -> Result<(), ScProbeError> {
+fn sc_probe(image_path: &OsStr) -> Result<(), ScProbeError> {
 	let mut data = Vec::new();
 
 	if image_path == "-" {

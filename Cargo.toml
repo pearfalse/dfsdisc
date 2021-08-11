@@ -13,6 +13,6 @@ name = "dfs"
 path = "src/main.rs"
 
 [dependencies]
-ascii = ">= 0.8"
-clap = "2.20"
+ascii = ">= 1.0"
+gumdrop = "0.8"
 arrayvec = "0.7.1"
