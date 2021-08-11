@@ -61,9 +61,7 @@ impl<'d> File<'d> {
 impl<'d> Hash for File<'d> {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		self.dir.hash(state);
-		self.name.hash(state);
-		self.load_addr.hash(state);
-		self.exec_addr.hash(state);
+		self.name.as_ascii_str().hash(state);
 	}
 }
 

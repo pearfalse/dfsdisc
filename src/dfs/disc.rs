@@ -36,6 +36,8 @@ impl TryFrom<u8> for BootOption {
 	}
 }
 
+const MAX_FILES: u8 = 31;
+
 type HeaderSectors = [u8; 0x200];
 pub type DiscName = AsciiName<12>;
 
@@ -54,6 +56,7 @@ impl<'d> Disc<'d> {
 
 	// Basic accessors
 	pub fn cycle(&self) -> BCD { self.cycle }
+	pub fn cycle_mut(&mut self) -> &mut BCD { &mut self.cycle }
 	pub fn increment_cycle(&mut self) {
 		let next_cycle = self.cycle.into_u8().wrapping_add(1);
 		self.cycle = match BCD::try_new(next_cycle) {
@@ -70,7 +73,7 @@ impl<'d> Disc<'d> {
 	}
 
 	pub fn boot_option(&self) -> BootOption { self.boot_option }
-	pub fn set_boot_option(&mut self, new: BootOption) { self.boot_option = new; }
+	pub fn boot_option_mut(&mut self) -> &mut BootOption { &mut self.boot_option }
 
 	/// Creates a new, empty DFS disc.
 	pub fn new() -> Disc<'d> {
@@ -196,6 +199,18 @@ impl<'d> Disc<'d> {
 
 	pub fn files<'a>(&'a self) -> Files {
 		Files(self.files.iter())
+	}
+
+	pub fn add_file(&mut self, file: File<'d>) -> Result<Option<File<'d>>, File<'d>> {
+		if self.files.len() >= MAX_FILES as usize {
+			return Err(file);
+		}
+
+		Ok(self.files.replace(file))
+	}
+
+	pub fn remove_file(&mut self, file_name: FileName, dir: AsciiPrintingChar) -> Option<File<'d>> {
+		self.files.take(&File::new(dir, file_name, 0, 0, false, &[]))
 	}
 }
 
