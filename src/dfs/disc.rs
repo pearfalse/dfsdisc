@@ -2,9 +2,10 @@ use std::convert::TryFrom;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
-use dfs::*;
-use support::*;
 use ascii::AsciiString;
+
+use crate::dfs::*;
+use crate::support::*;
 
 /// What a DFS-supporting OS would do with a [`Disc`](./struct.Disc.html)
 /// found in the drive during a Shift-BREAK.
@@ -269,8 +270,8 @@ fn populate_files(src: &[u8])
 #[cfg(test)]
 mod test {
 
-	use dfs;
-	use support::*;
+	use crate::dfs;
+	use crate::support::*;
 
 	#[test]
 	fn from_bytes_files_success() {

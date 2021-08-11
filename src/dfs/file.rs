@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
-use support::*;
+use crate::support::*;
 
 use ascii::{AsciiStr, AsciiString};
 
