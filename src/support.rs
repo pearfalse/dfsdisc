@@ -7,6 +7,31 @@ use std::fmt;
 use ascii;
 use ascii::AsciiChar;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct SliceMinSizeError;
+
+/// Tries to convert an array slice to a reference to a fixed-size array.
+///
+/// Unlike `&[T; N] as TryFrom<[T]>`, this trait _will_ succeed if the slice
+/// is bigger; only the first N elements will be considered.
+pub trait ArrayFromMinSlice<T, const N: usize> {
+	/// Attempt the conversion.
+	fn as_min_slice(&self) -> Result<&[T; N], SliceMinSizeError>;
+}
+
+impl<T, const N: usize> ArrayFromMinSlice<T, N> for [T] {
+	fn as_min_slice(&self) -> Result<&[T; N], SliceMinSizeError> {
+		match self.len() {
+			n if n >= N => unsafe {
+				// SAFETY: src.len() ensured to be big enough
+				Ok(&*(self.as_ptr() as *const [T; N]))
+			},
+			_ => return Err(SliceMinSizeError),
+		}
+	}
+}
+
+
 pub trait CopyFromCommonSliceExt<T> {
 	fn copy_from_common_slice(&mut self, src: &[T]);
 }
@@ -42,6 +67,7 @@ pub struct BCD {
 ///
 /// [`BCD`]: struct.BCD.html
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+// TODO: is this a meaningful disctinction? >99 is also not valid BCD
 pub enum BCDError {
 	/// The given integer value was over 99.
 	IntValueTooLarge,
@@ -50,6 +76,10 @@ pub enum BCDError {
 }
 
 impl BCD {
+
+	pub const C00: BCD = unsafe { BCD::new_unchecked(0x00) };
+	pub const C99: BCD = unsafe { BCD::new_unchecked(0x99) };
+
 	/// Constructs a `BCD` from a decimal value.
 	///
 	/// # Errors
@@ -57,7 +87,7 @@ impl BCD {
 	/// range.
 	///
 	/// [`BCDError`]: enum.BCDError.html
-	pub fn from_u8(src: u8) -> Result<BCD, BCDError> {
+	pub fn try_new(src: u8) -> Result<BCD, BCDError> {
 		match src {
 			x if x <= 99 => {
 				Ok(BCD {
@@ -67,6 +97,18 @@ impl BCD {
 			_ => Err(BCDError::IntValueTooLarge)
 		}
 	}
+
+	/// Constructs a `BCD` without checking if it is valid BCD first.
+	///
+	/// # Safety
+	///
+	/// `src` must be a valid BCD value.
+	pub const unsafe fn new_unchecked(src: u8) -> BCD {
+		Self { value: src }
+	}
+
+	#[deprecated(note = "old name")]
+	pub fn from_u8(src: u8) -> Result<BCD, BCDError> { Self::try_new(src) }
 
 	/// Converts a `BCD` back into its decimal value.
 	pub fn into_u8(self) -> u8 {
@@ -131,6 +173,30 @@ impl fmt::Display for AsciiPrintingChar {
 impl From<AsciiPrintingChar> for AsciiChar {
 	fn from(src: AsciiPrintingChar) -> AsciiChar {
 		src.0
+	}
+}
+
+#[cfg(test)]
+mod test_array_from_min_slice {
+	use super::*;
+
+	static SRC: [u8; 3] = [1,2,3];
+
+	#[test]
+	fn slice_big_enough() {
+		let dst = [1u8,2];
+		assert_eq!(Ok(&dst), SRC[..2].as_min_slice());
+	}
+
+	#[test]
+	fn slice_exact_size() {
+		assert_eq!(Ok(&SRC), SRC[..].as_min_slice());
+	}
+
+	#[test]
+	fn slice_too_small() {
+		let got: Result<&[u8; 4], _> = SRC[..].as_min_slice();
+		assert_eq!(Err(SliceMinSizeError), got);
 	}
 }
 

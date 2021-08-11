@@ -7,12 +7,12 @@ use ascii::AsciiString;
 
 /// What a DFS-supporting OS would do with a [`Disc`](./struct.Disc.html)
 /// found in the drive during a Shift-BREAK.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum BootOption {
 	None = 0,
 	Load = 1,
-	Run = 2,
+	Run  = 2,
 	Exec = 3,
 }
 
@@ -34,18 +34,36 @@ impl TryFrom<u8> for BootOption {
 	}
 }
 
+type HeaderSectors = [u8; 0x200];
+
 /// Representation of a single-sided DFS disc.
 #[derive(Debug)]
 pub struct Disc {
 	pub name: AsciiString,
+
+	#[deprecated(note = "will be made private")]
 	pub boot_option: BootOption,
+
+	#[deprecated(note = "will be made private")]
 	pub cycle: BCD,
 
 	files: HashSet<File>,
-
 }
 
 impl Disc {
+
+	// Basic accessors
+	pub fn cycle(&self) -> BCD { self.cycle }
+	pub fn increment_cycle(&mut self) {
+		let next_cycle = self.cycle.into_u8().wrapping_add(1);
+		self.cycle = match BCD::from_u8(next_cycle) {
+			Ok(bcd) => bcd,
+			Err(_) => BCD::C00
+		};
+	}
+
+	pub fn boot_option(&self) -> BootOption { self.boot_option }
+	pub fn set_boot_option(&mut self, new: BootOption) { self.boot_option = new; }
 
 	/// Decodes a slice of bytes from a disc image into a `Disc`.
 	///
@@ -94,11 +112,7 @@ impl Disc {
 	/// }
 	/// ```
 	pub fn from_bytes(src: &[u8]) -> Result<Disc, DFSError> {
-
-		// Must have minimum size for two sectors
-		if src.len() < (SECTOR_SIZE * 2) {
-			return Err(DFSError::InputTooSmall(SECTOR_SIZE * 2))
-		}
+		let header_sectors: &HeaderSectors = src.as_min_slice().map_err(|_| DFSError::InputTooSmall(SECTOR_SIZE * 2))?;
 
 		let disc_name: AsciiString = {
 			let buf = {
@@ -107,8 +121,8 @@ impl Disc {
 				// Second 4 come from buf[0x100..0x104]
 				// We already know the source is big enough
 				let mut b: [u8; 12] = [0; 12];
-				b[..8].copy_from_slice(&src[0x000..0x008]);
-				b[8..].copy_from_slice(&src[0x100..0x104]);
+				b[..8].copy_from_slice(&header_sectors[0x000..0x008]);
+				b[8..].copy_from_slice(&header_sectors[0x100..0x104]);
 
 				b
 			};
@@ -131,20 +145,20 @@ impl Disc {
 		// containing file data. The source extent _is_ checked per-file.
 		{
 			const OFFSET : usize = 0x107;
-			let upper = ((src[OFFSET - 1] & 3) as u16) << 8;
-			let result = (src[OFFSET] as u16) | upper;
+			let upper = ((header_sectors[OFFSET - 1] & 3) as u16) << 8;
+			let result = (header_sectors[OFFSET] as u16) | upper;
 			if result < 2 {
 				return Err(DFSError::InvalidDiscData(OFFSET));
 			}
 			result
 		};
 
-		let boot_option = (src[0x106] >> 4) & 3;
+		let boot_option = (header_sectors[0x106] >> 4) & 3;
 		let boot_option = BootOption::try_from(boot_option)?;
 
 		let disc_cycle = {
 			const OFFSET : usize = 0x104;
-			BCD::from_hex(src[OFFSET])
+			BCD::from_hex(header_sectors[OFFSET])
 				.map_err(|_| DFSError::InvalidDiscData(OFFSET))?
 		};
 
@@ -285,7 +299,7 @@ mod test {
 		let target = target.unwrap();
 
 		// Check cycle count
-		assert_eq!(BCD::from_hex(0x11).unwrap(), target.cycle);
+		assert_eq!(BCD::from_hex(0x11).unwrap(), target.cycle());
 
 		for f in target.files() {
 			println!("Found file {:?}", f);
@@ -372,7 +386,7 @@ mod test {
 			let target = dfs::Disc::from_bytes(&buf);
 			assert!(target.is_ok());
 			let target = target.unwrap();
-			assert_eq!(*boot_type, target.boot_option);
+			assert_eq!(*boot_type, target.boot_option());
 		}
 	}
 
