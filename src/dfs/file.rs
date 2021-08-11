@@ -1,10 +1,11 @@
-use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
 use crate::support::*;
 
-use ascii::{AsciiStr, AsciiString};
+use ascii::AsciiStr;
+
+pub type FileName = AsciiName<7>;
 
 /// A representation of a file in a DFS disc.
 ///
@@ -15,7 +16,7 @@ pub struct File<'d> {
 	/// The DFS directory that this file lives in.
 	dir: AsciiPrintingChar,
 	/// The name of the file.
-	name: AsciiString,
+	name: FileName,
 	/// The address in memory where an OS would load this file.
 	load_addr: u32,
 	/// The address in memory where, upon loading the file, the OS would begin executing.
@@ -27,7 +28,7 @@ pub struct File<'d> {
 }
 
 impl<'d> File<'d> {
-	pub fn new(dir: AsciiPrintingChar, name: AsciiString, load_addr: u32, exec_addr: u32, is_locked: bool,
+	pub fn new(dir: AsciiPrintingChar, name: FileName, load_addr: u32, exec_addr: u32, is_locked: bool,
 		content: &'d [u8]) -> File<'d> {
 		File {
 			dir,
@@ -44,7 +45,7 @@ impl<'d> File<'d> {
 	}
 
 	pub fn name(&self) -> &AsciiStr {
-		self.name.borrow()
+		(&*self.name).as_ascii_str()
 	}
 
 	pub fn load_addr(&self) -> u32 { self.load_addr }

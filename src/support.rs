@@ -3,9 +3,11 @@
 //! valid values for what they intend.
 
 use std::fmt;
+use std::ops::Deref;
 
 use ascii;
-use ascii::AsciiChar;
+use ascii::{AsciiChar, AsciiStr};
+use arrayvec::ArrayVec;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct SliceMinSizeError;
@@ -141,6 +143,7 @@ pub enum AsciiPrintingCharError {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct AsciiPrintingChar(AsciiChar);
 
 impl AsciiPrintingChar {
@@ -148,7 +151,7 @@ impl AsciiPrintingChar {
 	-> Result<AsciiPrintingChar, AsciiPrintingCharError> {
 		let maybe = ascii::ToAsciiChar::to_ascii_char(src)
 			.map_err(AsciiPrintingCharError::AsciiConversionError)?;
-		if maybe.is_control() {
+		if maybe.as_char().is_control() {
 			Err(AsciiPrintingCharError::NonprintingChar)
 		}
 		else {
@@ -161,6 +164,14 @@ impl AsciiPrintingChar {
 	}
 }
 
+impl std::ops::Deref for AsciiPrintingChar {
+	type Target = AsciiChar;
+
+	fn deref(&self) -> &Self::Target {
+	    &self.0
+	}
+}
+
 impl fmt::Display for AsciiPrintingChar {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		self.0.fmt(f)
@@ -170,6 +181,58 @@ impl fmt::Display for AsciiPrintingChar {
 impl From<AsciiPrintingChar> for AsciiChar {
 	fn from(src: AsciiPrintingChar) -> AsciiChar {
 		src.0
+	}
+}
+
+
+pub trait AsciiPrintingSlice {
+	fn as_ascii_str(&self) -> &AsciiStr;
+}
+
+impl AsciiPrintingSlice for [AsciiPrintingChar] {
+	fn as_ascii_str(&self) -> &AsciiStr {
+		unsafe { &*(self as *const [AsciiPrintingChar] as *const AsciiStr) }
+	}
+}
+
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct AsciiNameError(usize);
+
+impl AsciiNameError {
+	pub fn position(&self) -> usize { self.0 }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct AsciiName<const N: usize> {
+	store: ArrayVec<AsciiPrintingChar, N>,
+}
+
+impl<const N: usize> AsciiName<N> {
+	pub fn try_from_bytes(src: impl IntoIterator<Item = u8>) -> Result<Self, AsciiNameError> {
+		let mut store = ArrayVec::new();
+		for (i, byte) in src.into_iter().enumerate() {
+			let apc = AsciiPrintingChar::from(byte).map_err(move |_| AsciiNameError(i))?;
+			store.try_push(apc).map_err(move |_| AsciiNameError(i))?;
+		}
+
+		Ok(Self { store })
+	}
+
+	pub fn as_ascii_str(&self) -> &AsciiStr {
+		(*self.store).as_ascii_str()
+	}
+}
+
+impl<const N: usize> Deref for AsciiName<N> {
+	type Target = [AsciiPrintingChar];
+
+	fn deref(&self) -> &Self::Target { &*self.store }
+}
+
+impl<const N: usize> std::fmt::Display for AsciiName<N> {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		(*self.store).as_ascii_str().fmt(f)
 	}
 }
 

@@ -37,12 +37,15 @@ impl TryFrom<u8> for BootOption {
 }
 
 type HeaderSectors = [u8; 0x200];
+pub type DiscName = AsciiName<12>;
 
 /// Representation of a single-sided DFS disc.
 #[derive(Debug)]
 pub struct Disc<'d> {
 	_data: PhantomData<&'d [u8]>,
-	pub name: AsciiString,
+
+	#[deprecated(note = "field will go private")]
+	pub name: DiscName,
 
 	boot_option: BootOption,
 	cycle: BCD,
@@ -113,7 +116,7 @@ impl<'d> Disc<'d> {
 	pub fn from_bytes(src: &'d [u8]) -> Result<Disc<'d>, DFSError> {
 		let header_sectors: &HeaderSectors = src.as_min_slice().map_err(|_| DFSError::InputTooSmall(SECTOR_SIZE * 2))?;
 
-		let disc_name: AsciiString = {
+		let disc_name = {
 			let buf = {
 				// 12 bytes of u8
 				// First 8 come from buf[0x000..0x008]
@@ -127,8 +130,8 @@ impl<'d> Disc<'d> {
 			};
 
 			let name_len = buf.iter().take_while(|&&b| b > 32u8).count();
-			AsciiString::from_ascii(&buf[..name_len]).map_err(|e| {
-				let str_pos = e.ascii_error().valid_up_to();
+			DiscName::try_from_bytes(buf[..name_len].iter().copied()).map_err(|e| {
+				let str_pos = e.position();
 				// Decode index position back to byte offset
 				DFSError::InvalidDiscData(if str_pos >= 8 {
 					str_pos + 0xf8 // start of second sector; 0x008 -> 0x100
@@ -222,8 +225,8 @@ fn populate_files(src: &[u8])
 		let name = {
 			let name_buf = &src[offset1 .. (offset1 + 7)];
 			let name_len = name_buf.iter().take_while(|&&b| b > b' ').count();
-			AsciiString::from_ascii(&name_buf[..name_len]).map_err(|e| {
-				let str_pos = e.ascii_error().valid_up_to();
+			FileName::try_from_bytes(name_buf[..name_len].iter().copied()).map_err(|e| {
+				let str_pos = e.position();
 				DFSError::InvalidDiscData(offset1 + str_pos)
 			})?
 		};
@@ -335,7 +338,7 @@ mod test {
 		assert!(target.is_ok(), "returned error {:?}", target.unwrap_err());
 
 		let target = target.unwrap();
-		assert_eq!(test_name, target.name.as_bytes());
+		assert_eq!(test_name, target.name.as_ascii_str().as_bytes());
 	}
 
 	#[test]
@@ -364,7 +367,7 @@ mod test {
 		let disc_bytes = disc_buf_with_name(b"DiscName \xff\xff\xff");
 		let target = dfs::Disc::from_bytes(&disc_bytes);
 		assert!(target.is_ok());
-		assert_eq!(target.unwrap().name.as_str(), disc_name.as_str());
+		assert_eq!(target.unwrap().name.as_ascii_str(), disc_name.as_str());
 
 	}
 

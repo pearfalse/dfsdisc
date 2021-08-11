@@ -15,3 +15,4 @@ path = "src/main.rs"
 [dependencies]
 ascii = ">= 0.8"
 clap = "2.20"
+arrayvec = "0.7.1"
