@@ -141,7 +141,7 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 		namespace::Namespace,
 	};
 
-	let separator = AsciiChar::from_ascii(std::path::MAIN_SEPARATOR).unwrap();
+	const SEPARATOR: AsciiChar = AsciiChar::Slash;
 	let root_namespace = Namespace({
 		let mut map = std::collections::BTreeMap::new();
 		map.insert(String::from(xml::namespace::NS_NO_PREFIX), String::from("http://pearfalse.com/schemas/2021/dfs-manifest"));
@@ -170,7 +170,7 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 	for file in disc.files() {
 		file_path_buf.clear();
 		file_path_buf.push(*file.dir());
-		file_path_buf.push(separator);
+		file_path_buf.push(SEPARATOR);
 		file_path_buf.extend(file.name().as_slice().iter().copied());
 
 		fs::File::create(<&AsciiStr>::from(&*file_path_buf).as_str())
@@ -183,6 +183,7 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 		.map(|f| xml::writer::EventWriter::new_with_config(f, xml::writer::EmitterConfig {
 			indent_string: Cow::Borrowed("\t"),
 			perform_indent: true,
+			pad_self_closing: false,
 			.. Default::default()
 		})).map_err(CliError::Io)?;
 
@@ -224,7 +225,7 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 
 			file_path_buf.clear();
 			file_path_buf.push(dir1[0]);
-			file_path_buf.push(separator);
+			file_path_buf.push(SEPARATOR);
 			file_path_buf.extend(file.name().as_slice().iter().copied());
 
 			let file_attrs = [
