@@ -212,9 +212,9 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 
 		let ns_empty = xml::namespace::Namespace::empty();
 		for file in disc.files() {
-			let element_name = match file.exec_addr() {
-				0x801f | 0x8023 => "basic",
-				// 0xffff if file.content().is_text() => "text", TODO smart text handling
+			let element_name = match file.exec_addr() & 0xffff {
+				0x801f | 0x8023 if file.content().looks_like_basic() => "basic",
+				0xffff if file.content().is_mos_text() => "text",
 				n if n >= 0x900 && n < 0x8000 => "code",
 				_ => "data"
 			};
@@ -255,5 +255,24 @@ fn sc_unpack(image_path: &OsStr, target: &OsStr) -> Result<(), CliError> {
 		Err(_e) => panic!("Unexpected XML error: {:?}", _e),
 	};
 
-	Ok(())
+	manifest.into_inner().write_all(b"\n")
+		.map_err(CliError::Io)
+}
+
+trait FileHeuristics {
+	fn is_mos_text(&self) -> bool;
+	fn looks_like_basic(&self) -> bool;
+}
+
+impl FileHeuristics for [u8] {
+	fn is_mos_text(&self) -> bool {
+		const CR: u8 = b'\r';
+		const PRINTING_LOW : u8 = b'\x21';
+		const PRINTING_HIGH: u8 = b'\x7e';
+		self.iter().all(|&b| b == CR || (b >= PRINTING_LOW && b <= PRINTING_HIGH))
+	}
+
+	fn looks_like_basic(&self) -> bool {
+		self.len() >= 2 && [self[0], self[1]] == [0xd, 0x0]
+	}
 }
