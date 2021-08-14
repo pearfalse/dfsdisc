@@ -88,7 +88,7 @@ enum CliError {
 	Io(io::Error),
 	BadImage(dfs::DFSError),
 	XmlParseError(xml::reader::Error),
-	XmlDfsError(Cow<'static, str>),
+	ManifestError(Cow<'static, str>),
 }
 
 impl<O> From<CliError> for Result<O, CliError> {
@@ -311,8 +311,15 @@ impl FileHeuristics for [u8] {
 fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 	use xml::reader::XmlEvent;
 
-	fn dfs_error(s: &'static str) -> CliError {
-		CliError::XmlDfsError(Cow::Borrowed(s))
+	macro_rules! dfs_error {
+		($const:literal) => {
+			CliError::ManifestError(Cow::Borrowed($const))
+		};
+		($fmt:literal $(, $arg:expr)*) => {
+			CliError::ManifestError(Cow::Owned(format!(
+				$fmt $(, $arg)*
+			)))
+		};
 	}
 
 	let root = std::fs::canonicalize(manifest_path)
@@ -330,12 +337,11 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 	// - attempt to get root element
 	match reader.next()? {
 		XmlEvent::StartDocument { version: _, encoding: _, standalone: _ } => {},
-		_ => return Err(CliError::XmlDfsError(Cow::Borrowed("expected XML document start"))),
+		_ => return Err(dfs_error!("expected XML document start")),
 	};
 	let mut disc = match reader.next()? {
-		XmlEvent::StartElement {name: _, attributes, namespace: _} => {
-			let xmlns = attributes.local_attr("xmlns");
-			match xmlns {
+		XmlEvent::StartElement {name: _, attributes, namespace} => {
+			match namespace.get(xml::namespace::NS_NO_PREFIX) {
 				Some(XML_NAMESPACE) => {},
 				Some(_other) => warn!("document has unexpected XML namespace; wanted '{}'", XML_NAMESPACE),
 				None => warn!("document has no XML namespace; expected '{}'", XML_NAMESPACE),
@@ -345,62 +351,58 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 
 			if let Some(name) = attributes.local_attr("name") {
 				let ap_name = AsciiPrintingStr::try_from_str(name)
-					.map_err(|_| dfs_error("invalid disc name"))?;
-				disc.set_name(ap_name).map_err(|e| CliError::XmlDfsError(Cow::Owned(
-					format!("disc name has non-printing or non-ASCII character at position {}", e.position())
-					)))?;
+					.map_err(|_| dfs_error!("invalid disc name"))?;
+				disc.set_name(ap_name).map_err(|e| dfs_error!(
+					"disc name has non-printing or non-ASCII character at position {}", e.position()
+					))?;
 			}
 
 			if let Some(cycle) = attributes.local_attr("cycle") {
 				*disc.cycle_mut() = u8::from_str(cycle).ok()
 					.and_then(|r#u8| BCD::from_hex(r#u8).ok())
-					.ok_or_else(|| dfs_error("incorrect cycle count; not valid 2-digit BCD"))?;
+					.ok_or_else(|| dfs_error!("incorrect cycle count; not valid 2-digit BCD"))?;
 			}
 
 			if let Some(boot_option) = attributes.local_attr("boot") {
 				match dfs::BootOption::from_str(boot_option) {
 					Ok(bo) => *disc.boot_option_mut() = bo,
-					Err(_) => return Err(dfs_error("invalid boot option"))
+					Err(_) => return Err(dfs_error!("invalid boot option"))
 				};
 			}
 
 			Ok(disc)
 		},
-		_ => Err(dfs_error("missing <dfsdisc> start element")),
+		_ => Err(dfs_error!("missing <dfsdisc> start element")),
 	}?;
 
 	// create files
 	loop {
 		match reader.next()? {
 			XmlEvent::StartElement { name, attributes, namespace: _ } => {
-				match name.borrow().local_name {
-					"text" | "basic" | "data" | "code" => {},
-					_ => return Err(dfs_error("unrecognised element")),
+				let element_name = match name.borrow().local_name {
+					n @ "text" | n @ "basic" | n @ "data" | n @ "code" => n,
+					o => return Err(dfs_error!("unrecognised element '{}'", o)),
 				};
 
 				let dir = match attributes.local_attr("dir")
 				.map(AsciiPrintingChar::try_from_str) {
 					Some(Ok(c)) => Ok(c),
 					None => Ok(AsciiPrintingChar::DOLLAR),
-					Some(Err(_)) => Err(dfs_error("dir is not a printing ascii char")),
+					Some(Err(_)) => Err(dfs_error!("dir is not a printing ascii char")),
 				}?;
 
 				let name = match attributes.local_attr("name")
 				.map(|d| AsciiName::<7>::try_from(d.as_bytes())) {
 					Some(Ok(n)) => Ok(n),
-					None => Err(dfs_error("filename must be specified")),
-					Some(Err(_)) => Err(dfs_error("could not convert file name")),
+					None => Err(dfs_error!("filename must be specified")),
+					Some(Err(_)) => Err(dfs_error!("could not convert file name")),
 				}?;
 
 				let parse_addr = |addr_name: &str| -> Result<u32, CliError> {
 					match attributes.local_attr(addr_name).map(|s| u32::from_str_radix(s, 16)) {
 						Some(Ok(u)) => Ok(u),
-						Some(Err(_)) => Err(CliError::XmlDfsError(Cow::Owned(
-							format!("couldn't parse {} address", addr_name)
-						))),
-						None => Err(CliError::XmlDfsError(Cow::Owned(
-							format!("{} address is missing", addr_name)
-						))),
+						Some(Err(_)) => Err(dfs_error!("couldn't parse {} address", addr_name)),
+						None => Err(dfs_error!("{} address is missing", addr_name)),
 					}
 				};
 
@@ -408,16 +410,23 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 				let exec_addr = parse_addr("exec")?;
 
 				match disc.add_file(dfs::File::new(dfs::FileName::new(name, dir), load_addr, exec_addr, false, /* TODO */
-					&[] /* Content TODO */)) {
-					Ok(None) => {}
+				&[] /* Content TODO */)) {
+					Ok(None) => {},
 					Ok(Some(old)) => warn!("replacing existing file '{}.{}'", old.dir(), old.name()),
-					Err(failed) => return Err(CliError::XmlDfsError(Cow::Owned(
-						format!("file '{}.{}' was specified twice", failed.dir(), failed.name())
-					))),
+					Err(failed) => return Err(
+						dfs_error!("file '{}.{}' was specified twice", failed.dir(), failed.name())
+					),
+				};
+
+				match reader.next()? {
+					XmlEvent::EndElement { name } if name.local_name == element_name => {},
+					o => return Err(dfs_error!("uncrecognised element {:?}, was expecting </{}>",
+						o, element_name)),
 				};
 			},
 			XmlEvent::EndElement {name} if name.local_name == "dfsdisc" => break,
-			_ => return Err(dfs_error("unrecognised element")),
+			XmlEvent::Whitespace(_) | XmlEvent::Comment(_) => {}, // who care
+			other => return Err(dfs_error!("unrecognised element: {:?}", other)),
 		};
 	}
 
