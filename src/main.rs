@@ -69,7 +69,7 @@ fn main() {
 			Ok(())
 		},
 		None => {
-			eprintln!("No command specified; run with '-h' or '--help' for guidance");
+			eprintln!("{}", args.self_usage());
 			std::process::exit(1);
 		}
 	};
