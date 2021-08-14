@@ -190,13 +190,28 @@ impl From<AsciiPrintingChar> for AsciiChar {
 	}
 }
 
+impl ascii::ToAsciiChar for AsciiPrintingChar {
+	unsafe fn to_ascii_char_unchecked(self) -> AsciiChar { self.0 }
+
+	fn to_ascii_char(self) -> Result<AsciiChar, ascii::ToAsciiCharError> { Ok(self.0) }
+}
+
 pub type AsciiPrintingStr = [AsciiPrintingChar];
 
 pub trait AsciiPrintingSlice {
+	fn try_from_str(src: &str) -> Result<&AsciiPrintingStr, AsciiPrintingCharError>;
 	fn as_ascii_str(&self) -> &AsciiStr;
 }
 
 impl AsciiPrintingSlice for AsciiPrintingStr {
+	fn try_from_str(src: &str) -> Result<&AsciiPrintingStr, AsciiPrintingCharError> {
+		for &ch in src.as_bytes().iter() {
+			AsciiPrintingChar::from(ch)?;
+		}
+
+		Ok(unsafe { &*(src as *const str as *const [AsciiPrintingChar]) })
+	}
+
 	fn as_ascii_str(&self) -> &AsciiStr {
 		unsafe { &*(self as *const AsciiPrintingStr as *const AsciiStr) }
 	}

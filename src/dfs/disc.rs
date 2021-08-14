@@ -9,7 +9,8 @@ use crate::support::*;
 
 /// What a DFS-supporting OS would do with a [`Disc`](./struct.Disc.html)
 /// found in the drive during a Shift-BREAK.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, enum_utils::FromStr)]
+#[enumeration(case_insensitive)]
 #[repr(u8)]
 pub enum BootOption {
 	None = 0,
@@ -57,6 +58,8 @@ pub type DiscName = AsciiName<12>;
 pub struct Disc<'d> {
 	_data: PhantomData<&'d [u8]>,
 
+	// TODO: hold tracks count
+
 	name: DiscName,
 	boot_option: BootOption,
 	cycle: BCD,
@@ -77,10 +80,11 @@ impl<'d> Disc<'d> {
 	}
 
 	pub fn name(&self) -> &AsciiStr { self.name.as_ascii_str() }
-	pub fn set_name(&mut self, new_name: &AsciiPrintingStr) -> Result<(), DFSError> {
-		self.name = DiscName::try_from(new_name.as_ascii_str().as_slice())
-			.map_err(|e| DFSError::InputTooLarge(e.position()))?;
-		Ok(())
+	pub fn set_name(&mut self, new_name: &AsciiPrintingStr) -> Result<(), AsciiNameError> {
+		match AsciiName::try_from(new_name) {
+			Ok(n) => { self.name = n; Ok(()) },
+			Err(e) => Err(e),
+		}
 	}
 
 	pub fn boot_option(&self) -> BootOption { self.boot_option }

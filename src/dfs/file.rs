@@ -44,6 +44,13 @@ impl<'d> File<'d> {
 		self.name.name.as_ascii_str()
 	}
 
+	pub fn set_name(&mut self, new_name: &AsciiPrintingStr) -> Result<(), AsciiNameError> {
+		match AsciiName::<7>::try_from(new_name) {
+			Ok(n) => { self.name.name = n; Ok(()) },
+			Err(e) => Err(e),
+		}
+	}
+
 	pub fn load_addr(&self) -> u32 { self.load_addr }
 	pub fn exec_addr(&self) -> u32 { self.exec_addr }
 	pub fn is_locked(&self) -> bool { self.is_locked }

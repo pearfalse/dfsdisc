@@ -12,8 +12,13 @@ path = "src/lib.rs"
 name = "dfs"
 path = "src/main.rs"
 
+[profile.release]
+lto = true
+opt-level = 'z'
+
 [dependencies]
 ascii = ">= 1.0"
 xml-rs = "0.8.4"
 gumdrop = "0.8"
 arrayvec = "0.7.1"
+enum-utils = "0.1.2"
