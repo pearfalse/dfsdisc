@@ -332,10 +332,10 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 		XmlEvent::StartDocument { version: _, encoding: _, standalone: _ } => {},
 		_ => return Err(CliError::XmlDfsError(Cow::Borrowed("expected XML document start"))),
 	};
-	let mut dfs_image = match reader.next()? {
-		XmlEvent::StartElement {name: _, ref attributes, namespace: _} => {
+	let mut disc = match reader.next()? {
+		XmlEvent::StartElement {name: _, attributes, namespace: _} => {
 			let xmlns = attributes.local_attr("xmlns");
-			match xmlns.map(|attr| attr.value.as_str()) {
+			match xmlns {
 				Some(XML_NAMESPACE) => {},
 				Some(_other) => warn!("document has unexpected XML namespace; wanted '{}'", XML_NAMESPACE),
 				None => warn!("document has no XML namespace; expected '{}'", XML_NAMESPACE),
@@ -344,7 +344,7 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 			let mut disc = dfs::Disc::new();
 
 			if let Some(name) = attributes.local_attr("name") {
-				let ap_name = AsciiPrintingStr::try_from_str(name.value.as_str())
+				let ap_name = AsciiPrintingStr::try_from_str(name)
 					.map_err(|_| dfs_error("invalid disc name"))?;
 				disc.set_name(ap_name).map_err(|e| CliError::XmlDfsError(Cow::Owned(
 					format!("disc name has non-printing or non-ASCII character at position {}", e.position())
@@ -352,13 +352,13 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 			}
 
 			if let Some(cycle) = attributes.local_attr("cycle") {
-				*disc.cycle_mut() = u8::from_str(cycle.value.as_str()).ok()
+				*disc.cycle_mut() = u8::from_str(cycle).ok()
 					.and_then(|r#u8| BCD::from_hex(r#u8).ok())
 					.ok_or_else(|| dfs_error("incorrect cycle count; not valid 2-digit BCD"))?;
 			}
 
 			if let Some(boot_option) = attributes.local_attr("boot") {
-				match dfs::BootOption::from_str(boot_option.value.as_str()) {
+				match dfs::BootOption::from_str(boot_option) {
 					Ok(bo) => *disc.boot_option_mut() = bo,
 					Err(_) => return Err(dfs_error("invalid boot option"))
 				};
@@ -369,25 +369,76 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 		_ => Err(dfs_error("missing <dfsdisc> start element")),
 	}?;
 
-	// attempt to combine into disc image
+	// create files
+	loop {
+		match reader.next()? {
+			XmlEvent::StartElement { name, attributes, namespace: _ } => {
+				match name.borrow().local_name {
+					"text" | "basic" | "data" | "code" => {},
+					_ => return Err(dfs_error("unrecognised element")),
+				};
 
+				let dir = match attributes.local_attr("dir")
+				.map(AsciiPrintingChar::try_from_str) {
+					Some(Ok(c)) => Ok(c),
+					None => Ok(AsciiPrintingChar::DOLLAR),
+					Some(Err(_)) => Err(dfs_error("dir is not a printing ascii char")),
+				}?;
+
+				let name = match attributes.local_attr("name")
+				.map(|d| AsciiName::<7>::try_from(d.as_bytes())) {
+					Some(Ok(n)) => Ok(n),
+					None => Err(dfs_error("filename must be specified")),
+					Some(Err(_)) => Err(dfs_error("could not convert file name")),
+				}?;
+
+				let parse_addr = |addr_name: &str| -> Result<u32, CliError> {
+					match attributes.local_attr(addr_name).map(|s| u32::from_str_radix(s, 16)) {
+						Some(Ok(u)) => Ok(u),
+						Some(Err(_)) => Err(CliError::XmlDfsError(Cow::Owned(
+							format!("couldn't parse {} address", addr_name)
+						))),
+						None => Err(CliError::XmlDfsError(Cow::Owned(
+							format!("{} address is missing", addr_name)
+						))),
+					}
+				};
+
+				let load_addr = parse_addr("load")?;
+				let exec_addr = parse_addr("exec")?;
+
+				match disc.add_file(dfs::File::new(dfs::FileName::new(name, dir), load_addr, exec_addr, false, /* TODO */
+					&[] /* Content TODO */)) {
+					Ok(None) => {}
+					Ok(Some(old)) => warn!("replacing existing file '{}.{}'", old.dir(), old.name()),
+					Err(failed) => return Err(CliError::XmlDfsError(Cow::Owned(
+						format!("file '{}.{}' was specified twice", failed.dir(), failed.name())
+					))),
+				};
+			},
+			XmlEvent::EndElement {name} if name.local_name == "dfsdisc" => break,
+			_ => return Err(dfs_error("unrecognised element")),
+		};
+	}
 
 	// write it out to target
+	eprintln!("File was parsed");
 
 	Ok(())
 }
 
 trait AttributesExt {
-	type Attr;
+	type Attr: ?Sized;
 
 	fn local_attr(&self, local_name: &str) -> Option<&Self::Attr>;
 }
 
 impl AttributesExt for [xml::attribute::OwnedAttribute] {
-	type Attr = xml::attribute::OwnedAttribute;
+	type Attr = str;
 
 	fn local_attr(&self, local_name: &str) -> Option<&Self::Attr> {
 		let target = xml::name::Name::local(local_name);
 		self.iter().find(move |attr| attr.name.borrow() == target)
+			.map(|attr| attr.value.as_str())
 	}
 }

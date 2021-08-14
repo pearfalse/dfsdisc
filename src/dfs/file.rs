@@ -84,10 +84,11 @@ impl<'d> Hash for File<'d> {
 	fn hash<H: Hasher>(&self, state: &mut H) { self.name.hash(state); }
 }
 
+#[deprecated(note = "this struct is bad")]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FileName {
-	name: AsciiName<7>,
-	dir: AsciiPrintingChar,
+	pub name: AsciiName<7>,
+	pub dir: AsciiPrintingChar,
 }
 
 impl<'d> Borrow<FileName> for File<'d> {
@@ -95,7 +96,7 @@ impl<'d> Borrow<FileName> for File<'d> {
 }
 
 impl FileName {
-	pub(crate) fn new(name: AsciiName<7>, dir: AsciiPrintingChar) -> Self {
+	pub fn new(name: AsciiName<7>, dir: AsciiPrintingChar) -> Self {
 		Self { name, dir }
 	}
 

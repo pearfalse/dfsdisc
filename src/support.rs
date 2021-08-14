@@ -140,6 +140,7 @@ impl PartialEq for BCD {
 pub enum AsciiPrintingCharError {
 	AsciiConversionError(ascii::ToAsciiCharError),
 	NonprintingChar,
+	TooManyChars,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -157,6 +158,14 @@ impl AsciiPrintingChar {
 		else {
 			Ok(AsciiPrintingChar(maybe))
 		}
+	}
+
+	pub const DOLLAR: AsciiPrintingChar = Self(AsciiChar::Dollar);
+
+	pub fn try_from_str(s: &str) -> Result<AsciiPrintingChar, AsciiPrintingCharError> {
+		use std::convert::TryFrom;
+		let ch = <[u8; 1]>::try_from(s.as_bytes()).map_err(|_| AsciiPrintingCharError::TooManyChars)?[0];
+		Self::from(ch)
 	}
 
 	pub fn as_byte(&self) -> u8 {
