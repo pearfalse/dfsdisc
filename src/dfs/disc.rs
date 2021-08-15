@@ -224,12 +224,12 @@ impl<'d> Disc<'d> {
 		Ok(self.files.replace(file))
 	}
 
-	pub fn find_file(&self, file_name: &FileName) -> Option<&File<'d>> {
-		self.files.get(file_name)
+	pub fn find_file(&self, file_name: &FileName, dir_name: AsciiPrintingChar) -> Option<&File<'d>> {
+		self.files.get(&super::file::Key::new(file_name.clone(), dir_name))
 	}
 
-	pub fn remove_file(&mut self, file_name: &FileName) -> Option<File<'d>> {
-		self.files.take(file_name)
+	pub fn remove_file(&mut self, file_name: &FileName, dir_name: AsciiPrintingChar) -> Option<File<'d>> {
+		self.files.take(&super::file::Key::new(file_name.clone(), dir_name))
 	}
 }
 
@@ -276,7 +276,7 @@ fn populate_files(src: &[u8])
 		let name = {
 			let name_buf = &src[offset1 .. (offset1 + 7)];
 			let name_len = name_buf.iter().take_while(|&&b| b > b' ').count();
-			FileName::try_from(&name_buf[..name_len], dir).map_err(|e| {
+			FileName::try_from(&name_buf[..name_len]).map_err(|e| {
 				let str_pos = e.position();
 				DFSError::InvalidDiscData(offset1 + str_pos)
 			})?
@@ -307,7 +307,7 @@ fn populate_files(src: &[u8])
 		}
 
 		let file_contents = &src[(data_start as usize)..(data_end as usize)];
-		let file = File::new(name, load_addr, exec_addr, locked, file_contents);
+		let file = File::new(name, dir, load_addr, exec_addr, locked, file_contents);
 
 		if files.contains(&file) {
 			return Err(DFSError::DuplicateFileName(

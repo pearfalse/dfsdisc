@@ -6,6 +6,8 @@ use crate::support::*;
 
 use ascii::AsciiStr;
 
+pub type FileName = AsciiName<7>;
+
 /// A representation of a file in a DFS disc.
 ///
 /// The identity of a `File` (equality, hashing etc.) is determined by the
@@ -13,7 +15,7 @@ use ascii::AsciiStr;
 #[derive(PartialEq, Eq)]
 pub struct File<'d> {
 	/// The name of the file, including directory.
-	name: FileName,
+	name: Key,
 	/// The address in memory where an OS would load this file.
 	load_addr: u32,
 	/// The address in memory where, upon loading the file, the OS would begin executing.
@@ -25,10 +27,12 @@ pub struct File<'d> {
 }
 
 impl<'d> File<'d> {
-	pub fn new(name: FileName, load_addr: u32, exec_addr: u32, is_locked: bool,
+	pub fn new(name: FileName, dir: AsciiPrintingChar,
+		load_addr: u32, exec_addr: u32,
+		is_locked: bool,
 		content: &'d [u8]) -> File<'d> {
 		File {
-			name,
+			name: Key::new(name, dir),
 			load_addr,
 			exec_addr,
 			is_locked,
@@ -84,28 +88,23 @@ impl<'d> Hash for File<'d> {
 	fn hash<H: Hasher>(&self, state: &mut H) { self.name.hash(state); }
 }
 
-#[deprecated(note = "this struct is bad")]
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct FileName {
+pub(super) struct Key {
 	pub name: AsciiName<7>,
 	pub dir: AsciiPrintingChar,
 }
 
-impl<'d> Borrow<FileName> for File<'d> {
-	fn borrow(&self) -> &FileName { &self.name }
+impl<'d> Borrow<Key> for File<'d> {
+	fn borrow(&self) -> &Key { &self.name }
 }
 
-impl FileName {
-	pub fn new(name: AsciiName<7>, dir: AsciiPrintingChar) -> Self {
+impl Key {
+	pub(super) fn new(name: AsciiName<7>, dir: AsciiPrintingChar) -> Self {
 		Self { name, dir }
 	}
-
-	pub(crate) fn try_from<C: ascii::ToAsciiChar + Copy>(name: &[C], dir: AsciiPrintingChar) -> Result<Self, AsciiNameError> {
-		Ok(Self { name: AsciiName::try_from(name)?, dir })
-	}
 }
 
-impl Hash for FileName {
+impl Hash for Key {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		self.dir.hash(state);
 		self.name.as_ascii_str().hash(state);
