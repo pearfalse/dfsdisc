@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow,Cow};
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
@@ -23,14 +23,14 @@ pub struct File<'d> {
 	/// Whether the file is locked on disc.
 	is_locked: bool,
 	/// The content of the file.
-	content: &'d [u8],
+	content: Cow<'d, [u8]>,
 }
 
 impl<'d> File<'d> {
 	pub fn new(name: FileName, dir: AsciiPrintingChar,
 		load_addr: u32, exec_addr: u32,
 		is_locked: bool,
-		content: &'d [u8]) -> File<'d> {
+		content: Cow<'d, [u8]>) -> File<'d> {
 		File {
 			name: Key::new(name, dir),
 			load_addr,
@@ -58,7 +58,9 @@ impl<'d> File<'d> {
 	pub fn load_addr(&self) -> u32 { self.load_addr }
 	pub fn exec_addr(&self) -> u32 { self.exec_addr }
 	pub fn is_locked(&self) -> bool { self.is_locked }
-	pub fn content(&self) -> &'d [u8] { self.content }
+	pub fn content<'s>(&'s self) -> &'s [u8] where 'd: 's {
+		self.content.borrow()
+	}
 
 	pub fn lock(&mut self) { self.is_locked = true; }
 	pub fn unlock(&mut self) { self.is_locked = false; }

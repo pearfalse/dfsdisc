@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::collections::HashSet;
 use std::marker::PhantomData;
@@ -307,7 +308,8 @@ fn populate_files(src: &[u8])
 		}
 
 		let file_contents = &src[(data_start as usize)..(data_end as usize)];
-		let file = File::new(name, dir, load_addr, exec_addr, locked, file_contents);
+		let file = File::new(name, dir, load_addr, exec_addr, locked,
+			Cow::Borrowed(file_contents));
 
 		if files.contains(&file) {
 			return Err(DFSError::DuplicateFileName(

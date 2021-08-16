@@ -410,7 +410,7 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 				let exec_addr = parse_addr("exec")?;
 
 				match disc.add_file(dfs::File::new(name, dir, load_addr, exec_addr, false, /* TODO */
-				&[] /* Content TODO */)) {
+				Cow::Borrowed(&[]) /* Content TODO */)) {
 					Ok(None) => {},
 					Ok(Some(old)) => warn!("replacing existing file '{}.{}'", old.dir(), old.name()),
 					Err(failed) => return Err(
