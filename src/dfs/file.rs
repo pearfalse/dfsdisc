@@ -11,7 +11,7 @@ pub type FileName = AsciiName<7>;
 /// A representation of a file in a DFS disc.
 ///
 /// The identity of a `File` (equality, hashing etc.) is determined by the
-/// file's name, directory, load address and execution address.
+/// file's name and directory.
 #[derive(PartialEq, Eq)]
 pub struct File<'d> {
 	/// The name of the file, including directory.
