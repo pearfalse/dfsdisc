@@ -6,7 +6,7 @@ use std::io;
 use std::io::Read;
 use std::ffi::{OsStr,OsString};
 use std::fs::File;
-use std::path::{Path,PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use gumdrop::Options;
@@ -405,12 +405,25 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 						None => Err(dfs_error!("{} address is missing", addr_name)),
 					}
 				};
-
 				let load_addr = parse_addr("load")?;
 				let exec_addr = parse_addr("exec")?;
 
-				match disc.add_file(dfs::File::new(name, dir, load_addr, exec_addr, false, /* TODO */
-				Cow::Borrowed(&[]) /* Content TODO */)) {
+				let src_path = attributes.local_attr("src")
+					.ok_or_else(|| dfs_error!("src attribute is missing"))?;
+				let mut src = File::open(src_path)?;
+				if src.metadata().map(|m| m.len()).unwrap_or(u64::MAX) > dfs::MAX_DISC_SIZE {
+					return Err(dfs_error!("file '{}' is too big to fit", src_path))?;
+				}
+				// get file contents
+				let contents = {
+					let mut c = Vec::new();
+					src.read_to_end(&mut c)?;
+					c
+				};
+
+				match disc.add_file(dfs::File::new(name, dir, load_addr, exec_addr,
+				false, /* TODO */
+				Cow::Owned(contents))) {
 					Ok(None) => {},
 					Ok(Some(old)) => warn!("replacing existing file '{}.{}'", old.dir(), old.name()),
 					Err(failed) => return Err(
@@ -431,7 +444,7 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 	}
 
 	// write it out to target
-	eprintln!("File was parsed");
+	eprintln!("File was parsed, files were read. no disc image for you yet, sorry");
 
 	Ok(())
 }

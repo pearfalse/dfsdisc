@@ -7,7 +7,7 @@ mod file;
 pub const SECTOR_SIZE: usize = 256;
 
 /// Largest disc image size in all known DFS implementations.
-pub const MAX_DISC_SIZE: usize = 524288;
+pub const MAX_DISC_SIZE: u64 = 524288;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DFSError {
