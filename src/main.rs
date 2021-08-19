@@ -444,7 +444,8 @@ fn sc_pack(manifest_path: &Path, image_path: &Path) -> CliResult {
 	}
 
 	// write it out to target
-	eprintln!("File was parsed, files were read. no disc image for you yet, sorry");
+	let mut target = File::create(image_path)?;
+	disc.to_image(&mut target)?;
 
 	Ok(())
 }

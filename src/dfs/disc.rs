@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::collections::HashSet;
+use std::io;
 use std::marker::PhantomData;
 
 use ascii::AsciiStr;
+use arrayvec::ArrayVec;
 
 use crate::dfs::*;
 use crate::support::*;
@@ -50,6 +52,7 @@ impl TryFrom<u8> for BootOption {
 }
 
 const MAX_FILES: u8 = 31;
+const MAX_SECTORS: u16 = 800; // 10 sectors × 80 tracks
 
 type HeaderSectors = [u8; 0x200];
 pub type DiscName = AsciiName<12>;
@@ -231,6 +234,125 @@ impl<'d> Disc<'d> {
 
 	pub fn remove_file(&mut self, file_name: &FileName, dir_name: AsciiPrintingChar) -> Option<File<'d>> {
 		self.files.take(&super::file::Key::new(file_name.clone(), dir_name))
+	}
+
+	pub fn to_image(&self, target: &mut dyn io::Write) -> Result<u16, DFSError> {
+		use std::ops::Range;
+		// first, determine the ordering of files in the disc image
+		// then their sector spans, to ensure we have enough space
+
+		use std::num::NonZeroU16;
+		struct BuildData<'f, 'd> {
+			file: &'f File<'d>,
+			start_sector: NonZeroU16,
+			sector_count: u16,
+		}
+
+		let end_sector;
+		let file_indexes = {
+			let mut start_sector = NonZeroU16::new(2).unwrap();
+			let mut v = self.files.iter().map(|file| Ok(BuildData {
+				file,
+				start_sector, // to be assigned after sort
+				sector_count: match file.content().len() {
+					yes if yes <= 0x3ffff => yes.sectors() as u16,
+					no => return Err(DFSError::InputTooLarge(no))
+				},
+			})).collect::<Result<ArrayVec<_, { MAX_FILES as usize }>, _>>()?;
+			v.sort_unstable_by_key(|b: &BuildData| b.file.key().clone());
+
+			for data in &mut v {
+				data.start_sector = start_sector;
+				start_sector = match
+				// must not overflow when added to existing sector ptr
+				start_sector.get().checked_add(data.sector_count)
+				// and must also be non-zero (guaranteed)
+				.and_then(NonZeroU16::new) {
+					Some(s) => s,
+					None => return Err(DFSError::InputTooLarge(0x1_0000)),
+				};
+			}
+			end_sector = start_sector.get();
+			v
+		};
+
+		if end_sector > MAX_SECTORS {
+			return Err(DFSError::InputTooLarge(end_sector as usize));
+		}
+
+		let mut sectors = 2u16;
+		let mut buf = [0u8; 256];
+		let mut write_buf = |buf: &mut [u8; 256], sectors: &mut u16|
+		-> Result<(), DFSError> {
+			target.write_all(&buf[..])?;
+			*buf = [0u8; 256];
+			// we only call `write_buf` for first two sectors; it *will not* wrap
+			*sectors = sectors.wrapping_add(1);
+			Ok(())
+		};
+
+		fn buf_for_entry(idx: usize) -> Range<usize> {
+			(idx+1)*8 .. (idx+2)*8
+		}
+
+		// sector 0: start of disc name, file names
+		buf[..8].copy_space_padded(self.name().up_to(8));
+
+		for (i, data) in file_indexes.iter().enumerate() {
+			// transform i into offset
+			let dst = &mut buf[buf_for_entry(i)];
+
+			// copy file name
+			dst[..7].copy_space_padded(data.file.key().name
+				.as_ascii_str().as_bytes());
+			dst[7] = data.file.key().dir.as_byte();
+		}
+
+		write_buf(&mut buf, &mut sectors)?;
+
+		// sector 1: FS metadata mop-up, file entries
+		buf[..4].copy_space_padded(self.name().from_up_to(8..12));
+		buf[4] = self.cycle().into_u8();
+		buf[5] = (self.files.len() as u8).wrapping_mul(8); // won't wrap
+		buf[6] = /* b4,5 = boot option  */ (self.boot_option as u8) << 4
+		       | /* b0,1 = sectors b8,9 */ ((sectors & 0x300) >> 8) as u8;
+		buf[7] = (end_sector & 255) as u8;
+
+		for (i, data) in file_indexes.iter().enumerate() {
+			let load  = data.file.load_addr().to_le_bytes();
+			let exec  = data.file.exec_addr().to_le_bytes();
+			let len   = (data.file.content().len() as u32).to_le_bytes();
+			let start = data.start_sector.get().to_le_bytes();
+			buf[buf_for_entry(i)].copy_from_slice(&[
+				// load low
+				load[0], load[1],
+				// exec low
+				exec[0], exec[1],
+				// len low
+				len[0], len[1],
+				// highs
+				((exec[2] & 3) << 6) |
+				((len [2] & 3) << 4) |
+				((load[2] & 3) << 2) |
+				((start[1] & 3) << 0),
+				// sector low
+				start[0]
+			][..]);
+		};
+		write_buf(&mut buf, &mut sectors)?;
+
+		for data in file_indexes {
+			let content = data.file.content();
+			target.write_all(content)?;
+			match content.len() & 0xff {
+				0 => {},
+				n =>
+					// write_buf is empty
+					target.write_all(&buf[n..])?
+			};
+		}
+
+		Ok(end_sector)
 	}
 }
 

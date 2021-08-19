@@ -33,6 +33,23 @@ impl<T, const N: usize> ArrayFromMinSlice<T, N> for [T] {
 	}
 }
 
+pub trait SliceExt<T>: AsRef<[T]> {
+	fn up_to(&self, limit: usize) -> &[T] {
+		let slice: &[T] = self.as_ref();
+		&slice[..slice.len().min(limit)]
+	}
+
+	fn from_up_to(&self, range: std::ops::Range<usize>) -> &[T] {
+		let slice: &[T] = self.as_ref();
+		&slice[std::ops::Range {
+			start: range.start.min(slice.len()),
+			end: range.end.min(slice.len()),
+		}]
+	}
+}
+
+impl<T, C: AsRef<[T]>> SliceExt<T> for C {}
+
 
 pub trait CopyFromCommonSliceExt<T> {
 	fn copy_from_common_slice(&mut self, src: &[T]);
@@ -55,6 +72,32 @@ pub fn u16_from_le(src: &[u8]) -> u16 {
 	}
 	unsafe {
 		((*src.get_unchecked(1) as u16) << 8) | (*src.get_unchecked(0) as u16)
+	}
+}
+
+
+pub trait SectorMathExt {
+	fn sectors(self) -> Self;
+}
+
+impl SectorMathExt for usize {
+	fn sectors(self) -> Self { (self + 0xff) >> 8 }
+}
+
+pub(crate) trait U8SliceExt {
+	fn copy_space_padded(&mut self, src: &[u8]);
+}
+
+impl U8SliceExt for [u8] {
+	fn copy_space_padded(&mut self, src: &[u8]) {
+		assert!(self.len() >= src.len());
+		match (self.len(), src.len()) {
+			(t, s) if t == s => self.copy_from_slice(src),
+			(_, s) => {
+				self[..s].copy_from_slice(src);
+				self[s..].fill(0x20);
+			}
+		}
 	}
 }
 
@@ -143,7 +186,7 @@ pub enum AsciiPrintingCharError {
 	TooManyChars,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct AsciiPrintingChar(AsciiChar);
 

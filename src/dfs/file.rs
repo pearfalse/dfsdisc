@@ -1,4 +1,5 @@
 use std::borrow::{Borrow,Cow};
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::fmt;
 
@@ -65,6 +66,9 @@ impl<'d> File<'d> {
 	pub fn lock(&mut self) { self.is_locked = true; }
 	pub fn unlock(&mut self) { self.is_locked = false; }
 
+
+	pub(super) fn key(&self) -> &Key { &self.name }
+
 }
 
 impl<'d> fmt::Display for File<'d> {
@@ -110,5 +114,18 @@ impl Hash for Key {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		self.dir.hash(state);
 		self.name.as_ascii_str().hash(state);
+	}
+}
+
+impl PartialOrd for Key {
+	fn partial_cmp(&self, b: &Key) -> Option<Ordering> { Some(self.cmp(b)) }
+}
+
+impl Ord for Key {
+	fn cmp(&self, b: &Key) -> Ordering {
+		match self.dir.cmp(&b.dir) {
+			Ordering::Equal => (*self.name).cmp(&*b.name),
+			ne => ne,
+		}
 	}
 }
